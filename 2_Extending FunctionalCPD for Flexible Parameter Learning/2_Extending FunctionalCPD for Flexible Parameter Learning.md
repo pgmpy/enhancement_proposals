@@ -155,6 +155,11 @@ FBN.get_node("B", data=True, include_models=True)
 | `state_dict()` | - | `dict[str, Any]` |
 
 - `plot() `:Users can visualize the form of the CPD and understand the data at a glance. [[15]](https://github.com/sktime/skpro/blob/main/examples/03_skpro_distributions.ipynb)
+- We can also visualize CPT data using matplotlib.
+
+![4](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/4.png)
+
+
 
 #### `_BaseCPDAdapter`, `TabularCPDAdapter`, `LinearGaussianCPDAdapter`, `SkproAdapter`
 | Method | Input | Return |
