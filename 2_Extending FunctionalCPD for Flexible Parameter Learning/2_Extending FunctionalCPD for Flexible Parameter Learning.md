@@ -50,13 +50,14 @@ Contributors: @daehyun99
 ![2](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/2.jpg)
 
 - The `DAG` class carries a significant amount of responsibility, and many models inherit from it. [[12](https://github.com/pgmpy/pgmpy/blob/5239dfe1f6ab4327e165209b3b9f36c9fa0b6b15/pgmpy/base/DAG.py#L17)]
+
+> While refactoring the PDAG, we found that the GES algorithm also needs to be refactored. [[9](https://github.com/daehyun99/pgmpy/pull/70)]
+
 - Therefore, I believe that directly refactoring the `DAG` class, as shown above, would make it difficult to predict what kinds of issues might arise.
 - Also, It could block other issues that are currently in progress. [[5](https://github.com/pgmpy/pgmpy/issues/2835)], [[6](https://github.com/pgmpy/pgmpy/issues/3296)]
 - There is a possibility that existing classes such as `BIFReader`, `BIFWriter` may not function properly.
-<br>
-
-- While refactoring the PDAG, we found that the GES algorithm also needs to be refactored. [[9](https://github.com/daehyun99/pgmpy/pull/70)]
 - We need to reduce the scope of the project without blocking or interfering with other contributors’ work.
+
 <br>
 
 #### How to fit, run inference, and sample in the model [[8](https://github.com/pgmpy/pgmpy/pull/3260#issuecomment-4161481486)]
@@ -96,13 +97,13 @@ FBN.get_node("B", data=True, include_models=True)
     children: {"F"},
     roles: {"latents"},
     distribution: {
-        ... # distribution instance or setting info
+        # CPD instance or skpro's model
     },
     estimator: {
-        ... # estimoatr instance
+        # estimator's config
     },
     d_info: {
-        ... # data info
+        # data info
     }
 }
 
