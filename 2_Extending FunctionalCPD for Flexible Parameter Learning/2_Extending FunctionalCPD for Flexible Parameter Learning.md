@@ -9,14 +9,14 @@ Contributors: @daehyun99
 
 > Real-world Bayesian networks commonly have high-cardinality nodes. <br>
 > Issue #1776 shows another user hit 64 TiB allocation on an 82-node network. <br>
-> This is silently killing pgmpy adoption in production systems. [1]
+> This is silently killing pgmpy adoption in production systems. [[1](https://github.com/pgmpy/pgmpy/issues/3203)]
 
 - The issue cited above suggests that, for certain domains, pgmpy may see lower adoption in practice.
 - This is because the current `DiscreteBayesianNetwork`(`DiscreteBN`) supports only `TabularCPD`, while `FunctionalBayesianNetwork`(`FunctionalBN`) supports only `FunctionalCPD`.
 - Given the practical need to handle diverse forms of data, adopting pgmpy in real-world settings can introduce significant constraints.
 <br>
 
-- In addition, pgmpy is considering support for multiple types of CPDs within a single Bayesian network. [2], [3]
+- In addition, pgmpy is considering support for multiple types of CPDs within a single Bayesian network. [[2](https://github.com/pgmpy/pgmpy/issues/2343)], [[3](https://github.com/pgmpy/pgmpy/issues/2344)]
 <br>
 
 - Therefore, this proposal suggests adding support so that `FunctionalBN` can handle multiple types of CPDs, such as `TabularCPD`, `LinearGaussianCPD`, and `skpro` models.
@@ -25,8 +25,8 @@ Contributors: @daehyun99
 
 - The current inheritance structure of pgmpy is shown in the image above.
 - A previous consideration was to refactor `FunctionalBN` and `FunctionalCPD` to broaden their scope of support.
-- However, `_CoreGraph` has already been merged, and a refactoring of the `DAG` class is planned. [11]
-- Therefore, I believe that the refactoring of the `DAG` class (to inherit from `_CoreGraph`) should come first. [4]
+- However, `_CoreGraph` has already been merged, and a refactoring of the `DAG` class is planned. [[11](https://github.com/pgmpy/pgmpy/issues/2376)]
+- Therefore, I believe that the refactoring of the `DAG` class (to inherit from `_CoreGraph`) should come first. [[4](https://github.com/pgmpy/pgmpy/issues/2385)]
 
 ### Proposed Solution
 
@@ -35,31 +35,31 @@ Contributors: @daehyun99
 ![3](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/3.jpg)
 
 1. Create `Refactor_DAG` class.
-    - It will be inherting from `_CoreGraph` [10]
+    - It will be inherting from `_CoreGraph` [[10](https://github.com/pgmpy/pgmpy/blob/5239dfe1f6ab4327e165209b3b9f36c9fa0b6b15/pgmpy/base/_base.py#L10)]
     - It will be implementing minimal range of method.
 2. Create `FunctionalBN` class.
 3. Create `FunctionalCPD` class.
 4. Create `*Adapter` class. (`_BaseCPDAdapter`, `TabularCPDAdapter`, `LinearGaussianCPDAdapter`, `SkproAdapter`)
 5. Create `FunctionalEstimator` class.
 6. Create `FunctionalSampling`, `FunctionalInference` class.
-7. (later) Refactoring `DAG` class part to part. (we can consider introducing `_GraphConverterMixin` in same time. [7])
+7. (later) Refactoring `DAG` class part to part. (we can consider introducing `_GraphConverterMixin` in same time. [[7](https://github.com/pgmpy/pgmpy/issues/2933)])
 
 ### Alternative Solutions
 
 #### A solution that directly refactors the `DAG`
 ![2](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/2.jpg)
 
-- The `DAG` class carries a significant amount of responsibility, and many models inherit from it. [12]
+- The `DAG` class carries a significant amount of responsibility, and many models inherit from it. [[12](https://github.com/pgmpy/pgmpy/blob/5239dfe1f6ab4327e165209b3b9f36c9fa0b6b15/pgmpy/base/DAG.py#L17)]
 - Therefore, I believe that directly refactoring the `DAG` class, as shown above, would make it difficult to predict what kinds of issues might arise.
-- Also, It could block other issues that are currently in progress. [5], [6]
+- Also, It could block other issues that are currently in progress. [[5](https://github.com/pgmpy/pgmpy/issues/2835)], [[6](https://github.com/pgmpy/pgmpy/issues/3296)]
 - There is a possibility that existing classes such as `BIFReader`, `BIFWriter` may not function properly.
 <br>
 
-- While refactoring the PDAG, we found that the GES algorithm also needs to be refactored. [9]
+- While refactoring the PDAG, we found that the GES algorithm also needs to be refactored. [[9](https://github.com/daehyun99/pgmpy/pull/70)]
 - We need to reduce the scope of the project without blocking or interfering with other contributors’ work.
 <br>
 
-#### How to fit, run inference, and sample in the model [8]
+#### How to fit, run inference, and sample in the model [[8](https://github.com/pgmpy/pgmpy/pull/3260)]
 ```python
 
 model.fit()
@@ -118,7 +118,7 @@ FBN.get_node("B", data=True, include_models=True)
 | `remove_edges_from()` | `ebunchs` | - |
 | `is_valid_dag()` | - | `bool` |
 
-- The `is_valid_dag` verifies that it meets the conditions of the `DAG`, such as cycle confirmation.(Ref: https://github.com/pgmpy/pgmpy/pull/2579)
+- The `is_valid_dag` verifies that it meets the conditions of the `DAG`, such as cycle confirmation. [[14]Issue #2579](https://github.com/pgmpy/pgmpy/pull/2579)
 
 #### `FunctionalBayesianNetwork`
 | Method | Input | Return |
@@ -182,7 +182,7 @@ FBN.get_node("B", data=True, include_models=True)
 
 - Orchestration Inference with `FunctionalCPD`
 
-- Allow users to load a model saved in an existing format such as `BIF` and replace specific CPDs. (UserCase 1 참고)
+- Allow users to load a model saved in an existing format such as `BIF` and replace specific CPDs.
 
 
 ### User journeys with the solution
@@ -238,15 +238,21 @@ from skpro.regression.bayesian import BayesianLinearRegressor
 alarm_model = load_model("bnlearn/alarm") # DiscreteBN
 alarm_samples = alarm_model.simulate(int(1e3))
 
-# Causal Discovery
+# Causal Discovery, Structural
 est1 = PC(ci_test='chi_square', variant="stable", max_cond_vars=4, return_type='dag')
 est1.fit(alarm_samples)
+
+# Analysis and Improvement of Structural Learning Results
+est.causal_graph_.to_graphviz()
+
+est.causal_graph_.get_nodes()
+
 
 # Parameter Learning
 FunctionalBN = FunctionalBN(est.causal_graph_)
 
 CVP = FunctionalCPD(node="CVP", distribution="tabular", estimator=MaximumLikelihoodEstimator())
-HYPOVOLEMIA = FunctionalCPD(node="HYPOVOLEMIA", distribution="Normal", estimator=BayesianLinearRegressor())
+HYPOVOLEMIA = FunctionalCPD(node="HYPOVOLEMIA", distribution="normal", estimator=BayesianLinearRegressor())
 LVFAILURE = FunctionalCPD(node="LVFAILURE", distribution="linear", estimator=MaximumLikelihoodEstimator())
 
 FunctionalBN.add_cpds(CVP, HYPOVOLEMIA, LVFAILURE)
@@ -258,7 +264,6 @@ est2.fit(FunctionalBN, alarm_samples)
 # Inference
 infer = FunctionalInference(FunctionalBN)
 infer.query()
-
 
 ```
 
@@ -276,3 +281,4 @@ infer.query()
 - [[11]Issue #2376](https://github.com/pgmpy/pgmpy/issues/2376)
 - [[12]](https://github.com/pgmpy/pgmpy/blob/5239dfe1f6ab4327e165209b3b9f36c9fa0b6b15/pgmpy/base/DAG.py#L17)
 - [[13]Python 3.14.4 Documentation](https://docs.python.org/3/library/pickle.html)
+- [[14]Issue #2579](https://github.com/pgmpy/pgmpy/pull/2579)
