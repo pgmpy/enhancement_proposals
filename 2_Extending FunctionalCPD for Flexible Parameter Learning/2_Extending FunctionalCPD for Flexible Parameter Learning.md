@@ -41,7 +41,7 @@ Contributors: @daehyun99
 3. Create `FunctionalCPD` class.
 4. Create `*Adapter` class. (`_BaseCPDAdapter`, `TabularCPDAdapter`, `LinearGaussianCPDAdapter`, `SkproAdapter`)
 5. Create `FunctionalEstimator` class.
-6. Create `FunctionalSampling`, `FunctionalInference` class.
+6. Create `FunctionalInference` class.
 7. (later) Refactoring `DAG` class part to part. (we can consider introducing `_GraphConverterMixin` in same time. [[7](https://github.com/pgmpy/pgmpy/issues/2933)])
 
 ### Alternative Solutions
@@ -141,7 +141,7 @@ FBN.get_node("B", data=True, include_models=True)
 
 - `get_random` `get_random_cpds` [6]
 - I am not yet aware of a format that supports multiple types of CPDs.
-- I am thinking of supporting only the Python pickle format for `save` and `load`. [13]
+- I am thinking of supporting only the Python pickle format for `save` and `load`. (Security issues related to the Python pickle format [[13](https://docs.python.org/3/library/pickle.html)])
 
 #### `FunctionalCPD`
 | Method | Input | Return |
