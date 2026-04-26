@@ -59,7 +59,7 @@ Contributors: @daehyun99
 - We need to reduce the scope of the project without blocking or interfering with other contributors’ work.
 <br>
 
-#### How to fit, run inference, and sample in the model [[8](https://github.com/pgmpy/pgmpy/pull/3260)]
+#### How to fit, run inference, and sample in the model [[8](https://github.com/pgmpy/pgmpy/pull/3260#issuecomment-4161481486)]
 ```python
 
 model.fit()
@@ -118,13 +118,13 @@ FBN.get_node("B", data=True, include_models=True)
 | `remove_edges_from()` | `ebunchs` | - |
 | `is_valid_dag()` | - | `bool` |
 
-- The `is_valid_dag` verifies that it meets the conditions of the `DAG`, such as cycle confirmation. [[14]Issue #2579](https://github.com/pgmpy/pgmpy/pull/2579)
+- The `is_valid_dag` verifies that it meets the conditions of the `DAG`, such as cycle confirmation. [[14]](https://github.com/pgmpy/pgmpy/pull/2579)
 
 #### `FunctionalBayesianNetwork`
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | `ebunch`,<br> `latents`,<br> `exposures`,<br> `outcomes`,<br> `roles` | - |
-| `add_cpd()` | `node`,<br> `tag`,<br> `estimator` | - |
+| `add_cpd()` | `node`,<br> `distribution`,<br> `estimator` | - |
 | `add_cpds(*cpds)` | `FunctionalCPD` instance | - |
 | `remove_cpd()` | `node`| - |
 | `remove_cpds(*cpds)` | `FunctionalCPD` instance | - |
@@ -146,11 +146,14 @@ FBN.get_node("B", data=True, include_models=True)
 #### `FunctionalCPD`
 | Method | Input | Return |
 | - | - | - |
-| `__init__()` | `node(=variable)`,<br>`estimator`,<br>`is_fitted` | `FunctionalCPD` instance |
+| `__init__()` | `node(=variable)`,<br>`distribution`,<br>`estimator` | `FunctionalCPD` instance |
 | `fit()` | `data: pandas.DataFrame` | `FunctionalCPD` |
 | `predict_proba()` | `data: pandas.DataFrame` | `Distribution` instance |
 | `sample()` | `n_samples`,<br>`random_state` | `samples: pandas.DataFrame` |
+| ✨`plot()` | - | `matplotlib images` |
 | `state_dict()` | - | `dict[str, Any]` |
+
+- `plot() `:Users can visualize the form of the CPD and understand the data at a glance. [[15]](https://github.com/sktime/skpro/blob/main/examples/03_skpro_distributions.ipynb)
 
 #### `_BaseCPDAdapter`, `TabularCPDAdapter`, `LinearGaussianCPDAdapter`, `SkproAdapter`
 | Method | Input | Return |
@@ -158,6 +161,7 @@ FBN.get_node("B", data=True, include_models=True)
 | `fit()` | `data: pandas.DataFrame` | `self` |
 | `predict_proba()` | `data: pandas.DataFrame` | `Distribution` instance |
 | `sample()` | `n_samples`,<br>`random_state` | `samples`: `pandas.DataFrame` or `skpro.Distribution` |
+| ✨`plot()` | - | `matplotlib images` |
 | `__repr__()` | - | - |
 
 #### `DiscreteBayesianNetwork`
@@ -182,9 +186,6 @@ FBN.get_node("B", data=True, include_models=True)
 
 - Orchestration Inference with `FunctionalCPD`
 
-- Allow users to load a model saved in an existing format such as `BIF` and replace specific CPDs.
-
-
 ### User journeys with the solution
 
 #### UseCase 1: Load the existing `DiscreteBN` and use it as a `FunctionalBN`.
@@ -202,7 +203,7 @@ DiscreteBN = DiscreteBayesianNetwork(ebunch=alarm_model.edges())
 est1 = MaximumLikelihoodEstimator()
 est1.fit(DiscreteBN, alarm_samples)
 
-# >>> alarm_model.nodes()
+alarm_model.nodes() # or alarm_model.get_nodes()
 # NodeView(('HISTORY', 'CVP', 'PCWP', 'HYPOVOLEMIA', 'LVEDVOLUME', 'LVFAILURE',  ...))
 
 # User Customizing setting
@@ -275,10 +276,11 @@ infer.query()
 - [[5]Issue #2835](https://github.com/pgmpy/pgmpy/issues/2835)
 - [[6]Issue #3296](https://github.com/pgmpy/pgmpy/issues/3296)
 - [[7]Issue #2933](https://github.com/pgmpy/pgmpy/issues/2933)
-- [[8]Pull Request #3260](https://github.com/pgmpy/pgmpy/pull/3260)
+- [[8]Pull Request #3260](https://github.com/pgmpy/pgmpy/pull/3260#issuecomment-4161481486)
 - [[9]Forked Repo - Pull Request #70](https://github.com/daehyun99/pgmpy/pull/70)
 - [[10]Issue #](https://github.com/pgmpy/pgmpy/blob/5239dfe1f6ab4327e165209b3b9f36c9fa0b6b15/pgmpy/base/_base.py#L10)
 - [[11]Issue #2376](https://github.com/pgmpy/pgmpy/issues/2376)
 - [[12]](https://github.com/pgmpy/pgmpy/blob/5239dfe1f6ab4327e165209b3b9f36c9fa0b6b15/pgmpy/base/DAG.py#L17)
 - [[13]Python 3.14.4 Documentation](https://docs.python.org/3/library/pickle.html)
 - [[14]Issue #2579](https://github.com/pgmpy/pgmpy/pull/2579)
+- [[15]skpro's examples file](https://github.com/sktime/skpro/blob/main/examples/03_skpro_distributions.ipynb)
