@@ -139,7 +139,7 @@ FBN.get_node("B", data=True, include_models=True)
 | ✨`save()` | `file_path`, `filetype` | - |
 | ✨`load()` | `file_path`, `filetype` | - |
 
-- `get_random` `get_random_cpds` [6]
+- `get_random` `get_random_cpds` [[6]((https://github.com/pgmpy/pgmpy/issues/3296))]
 - I am not yet aware of a format that supports multiple types of CPDs.
 - I am thinking of supporting only the Python pickle format for `save` and `load`. (Security issues related to the Python pickle format [[13](https://docs.python.org/3/library/pickle.html)])
 
