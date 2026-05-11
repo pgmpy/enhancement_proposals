@@ -1,4 +1,4 @@
-## Extending FunctionalCPD for Flexible Parameter Learning
+## Extending `CPD` for Flexible Parameter Learning
 
 Contributors: @daehyun99
 
