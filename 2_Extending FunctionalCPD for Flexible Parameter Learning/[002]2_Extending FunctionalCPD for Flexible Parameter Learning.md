@@ -343,7 +343,7 @@ JunctionTree.get_node("B", data=True, include_models=True)
 
 ### Alternative Solutions && Additional Solutions
 
-#### 5. UndirectGraph가 CoreGraph 상속 (https://github.com/pgmpy/pgmpy/pull/3385)
+#### 5. Consider having `UndirectedGraph` inherit from `CoreGraph`.
 
 ![9](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/9.excalidraw.png)
 
@@ -352,7 +352,7 @@ JunctionTree.get_node("B", data=True, include_models=True)
 * I believe the only difference between `nx.Graph` and `nx.MultiGraph` is that `nx.MultiGraph` allows multiple edges between two nodes.
 * If `UndirectGraph` inherits from `_CoreGraph`, then we can use unified methods such as `get_edges()`, `add_edge()`, `copy()`, and so on.
 * In addition, since the edge representation becomes consistent, compatibility between `BayesianNetwork` <-> `ClusterGraph`, `JunctionTree`, `FactorGraph` would be improved.
-- I think refactoring will be low-effort if the `weight` parameter in `UndirectGraph.add_edge()` isn't needed, as it appears to be unused.
+- I think refactoring will be low-effort if the `weight` parameter in `UndirectGraph.add_edge()` isn't needed, as it appears to be unused. [[#3385]](https://github.com/pgmpy/pgmpy/pull/3385)
 
 #### 6. Provide information on available estimators for user.
 
