@@ -416,6 +416,7 @@ https://proceedings.mlr.press/v2/yuan07a.html
 
 #### `_FactorMixin`
 | Method | Input | Return |
+| - | - | - |
 | `_get_factor()` | `variable` | `factor` or `CPD`'s info |
 | `_add_factor()` | `variable`<br> `factor` | - |
 | `_remove_factor()` | `variable` | - |
@@ -425,6 +426,7 @@ https://proceedings.mlr.press/v2/yuan07a.html
 
 #### `_StateNamesMixin`
 | Method | Input | Return |
+| - | - | - |
 | `build_state_names()` | `data` | - |
 | `get_state_name()` | `key` | `key`<br>`value` |
 | `add_state_name()` | `key`<br>`value` | - |
