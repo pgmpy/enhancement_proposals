@@ -63,10 +63,10 @@ G.add_node(
 
 ##### Proposed Solution
 
-1. Compatibility
-   1-1. Consider how to store factors, CPDs, and skpro models. (Implement `_FactorMixin`)
-   1-2. CPDs and Factors require `state_name` information. (Refactor `_StateNamesMixin`)
-   1-3. Externally, consider compatibility with skpro models.
+1. Compatibility<br>
+1-1. Consider how to store factors, CPDs, and skpro models. (Implement `_FactorMixin`) <br>
+1-2. CPDs and Factors require `state_name` information. (Refactor `_StateNamesMixin`)<br>
+1-3. Externally, consider compatibility with skpro models.<br>
 2. Consider the parameter learning way. (Implement `HybridEstimator`)
 3. Consider refactoring how node roles are stored. (Refactor `_GraphRolesMixin`)
 4. Consider a `get_node()` method that provides information to users.
