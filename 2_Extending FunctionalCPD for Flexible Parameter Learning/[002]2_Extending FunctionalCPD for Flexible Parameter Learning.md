@@ -113,7 +113,7 @@ factor <-> CPD
 ```python
 class _FactorMixin:
     """ Wrapper class """
-    self._factors = dict() # key: variables, value: FactorObject
+    self._factors = dict(frozenset: FactorObject) # key: frozenset(variables), value: FactorObject
 
     def _get_factors():
         ...
