@@ -1,19 +1,28 @@
 """
-Prototype implementation of the LinearGaussianSCM simulator dataset.
+Prototype implementation of the _SimulationMixin and LinearGaussianSCM simulator.
 
 This file demonstrates how a concrete simulator dataset class would look
 using the proposed _SimulationMixin architecture. It is included alongside
 the proposal for reference and is not intended to be merged as-is into pgmpy.
+
+Changes from v1 (based on @ankurankan's review):
+  - Dropped class-level caching. _simulate() is now a pure function.
+  - Ground truth type widened from DAG to CausalGraph (Union of DAG, PDAG, ADMG, MAG).
+  - n_samples and seed are explicit parameters (not buried in **kwargs).
 
 See proposal.md for the full design discussion.
 """
 
 from __future__ import annotations
 
+from typing import Union
+
 import pandas as pd
 
-from pgmpy.base import DAG
+from pgmpy.base import DAG, ADMG, MAG, PDAG
 from pgmpy.datasets._base import _BaseDataset
+
+CausalGraph = Union[DAG, PDAG, ADMG, MAG]
 
 
 # ---------------------------------------------------------------------------
@@ -24,35 +33,48 @@ from pgmpy.datasets._base import _BaseDataset
 class _SimulationMixin:
     """
     Mixin for datasets where data is generated on-the-fly via a simulation
-    process.  Overrides ``load_dataframe`` and ``load_ground_truth`` to call
-    the subclass's ``_simulate`` method.
+    process. Subclasses must implement ``_simulate()``.
 
-    Subclasses must implement ``_simulate(**kwargs) -> tuple[pd.DataFrame, DAG]``.
+    This mixin is stateless. It does not cache simulation results.
+    ``load_dataset()`` is the intended entry point: it calls ``_simulate()``
+    once and passes both the data and ground-truth graph directly to the
+    ``Dataset`` constructor.
 
-    When using this mixin it should be the first parent class so that its
-    ``load_dataframe`` and ``load_ground_truth`` take precedence in the MRO
-    (same convention as ``_CovarianceMixin``).
+    If users call ``_simulate()`` directly, they are responsible for passing
+    the same ``seed`` to get reproducible results.
+
+    When using this mixin, it should be the first parent class so that its
+    methods take precedence in the MRO (same convention as
+    ``_CovarianceMixin``).
     """
 
-    _cached_data: pd.DataFrame | None = None
-    _cached_ground_truth: DAG | None = None
-
     @classmethod
-    def _simulate(cls, **kwargs) -> tuple[pd.DataFrame, DAG]:
+    def _simulate(
+        cls,
+        n_samples: int | None = None,
+        seed: int | None = None,
+        **sim_kwargs,
+    ) -> tuple[pd.DataFrame, CausalGraph]:
+        """
+        Generate simulated data and the ground-truth causal graph.
+
+        Must be implemented by each simulator dataset class.
+
+        Parameters
+        ----------
+        n_samples : int or None
+            Number of samples to generate.
+        seed : int or None
+            Seed for reproducibility.
+        **sim_kwargs
+            Simulator-specific hyperparameters.
+
+        Returns
+        -------
+        tuple[pd.DataFrame, CausalGraph]
+            (data, ground_truth_graph)
+        """
         raise NotImplementedError(f"{cls.__name__} must implement _simulate().")
-
-    @classmethod
-    def load_dataframe(cls, **kwargs) -> pd.DataFrame:
-        data, ground_truth = cls._simulate(**kwargs)
-        cls._cached_data = data
-        cls._cached_ground_truth = ground_truth
-        return data
-
-    @classmethod
-    def load_ground_truth(cls) -> DAG:
-        if cls._cached_ground_truth is None:
-            cls.load_dataframe()
-        return cls._cached_ground_truth
 
 
 # ---------------------------------------------------------------------------
@@ -88,11 +110,11 @@ class LinearGaussianSCM(_SimulationMixin, _BaseDataset):
     @classmethod
     def _simulate(
         cls,
-        n_samples: int = 1000,
+        n_samples: int | None = 1000,
+        seed: int | None = None,
         n_nodes: int = 5,
         edge_prob: float = 0.3,
         noise_scale: float = 1.0,
-        seed: int | None = None,
         **kwargs,
     ) -> tuple[pd.DataFrame, DAG]:
         from pgmpy.models import LinearGaussianBayesianNetwork as LGBN
@@ -119,19 +141,16 @@ if __name__ == "__main__":
     print(f"Default: {df.shape[0]} samples, {df.shape[1]} variables, {dag.number_of_edges()} edges")
 
     # Custom hyperparameters
-    df, dag = LinearGaussianSCM._simulate(n_samples=500, n_nodes=8, edge_prob=0.4, seed=42)
+    df, dag = LinearGaussianSCM._simulate(n_samples=500, seed=42, n_nodes=8, edge_prob=0.4)
     print(f"Custom:  {df.shape[0]} samples, {df.shape[1]} variables, {dag.number_of_edges()} edges")
 
-    # Reproducibility check
+    # Reproducibility check (stateless: same seed = same output)
     df1, dag1 = LinearGaussianSCM._simulate(n_samples=100, seed=42)
     df2, dag2 = LinearGaussianSCM._simulate(n_samples=100, seed=42)
     assert df1.equals(df2), "Reproducibility failed: DataFrames differ"
     assert set(dag1.edges()) == set(dag2.edges()), "Reproducibility failed: DAGs differ"
     print("Reproducibility: OK")
 
-    # Mixin flow (load_dataframe -> load_ground_truth)
-    data = LinearGaussianSCM.load_dataframe(n_samples=200, seed=7)
-    gt = LinearGaussianSCM.load_ground_truth()
-    assert data.shape[0] == 200
-    assert gt is not None
-    print(f"Mixin flow: {data.shape[0]} samples, ground_truth has {gt.number_of_edges()} edges")
+    # Verify ground truth type
+    assert isinstance(dag, DAG), f"Expected DAG, got {type(dag)}"
+    print(f"Ground truth type: {type(dag).__name__}")
