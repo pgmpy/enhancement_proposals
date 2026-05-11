@@ -274,6 +274,8 @@ infer.query()
 
 ```
 
+![9](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/9.excalidraw.png)
+
 ### Reference
 - [[1]Issue #3203](https://github.com/pgmpy/pgmpy/issues/3203)
 - [[2]Issue #2343](https://github.com/pgmpy/pgmpy/issues/2343)
