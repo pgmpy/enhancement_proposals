@@ -152,7 +152,7 @@ class BayesianNetwork(DAG, _FactorMixin):
 
 #### 1-2. CPDs and Factors require `state_name` information. (Refactor `_StateNamesMixin`)
 
-* In 1-1, a CPD is added as in `BayesianNetwork.add_cpd(variable="grade", cpd=TabularCPD())`.
+* In 1-1, a CPD is added as in `BayesianNetwork.add_cpd(variable="grade", cpd=TabularCPD())`. Referencing Section of `User journeys with the solution/UseCase 2: Adding CPD and factor's API`
 * However, CPDs and Factors require `state_name` information for their `variables`. Taking this into account, adding `state_name` to the code above would look as follows.
 
 ```py
