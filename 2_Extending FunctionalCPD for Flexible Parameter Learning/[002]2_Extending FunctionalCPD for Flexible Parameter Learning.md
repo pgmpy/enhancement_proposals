@@ -301,11 +301,11 @@ Finally, considering the storage approaches of `_FactorMixin` and `_StateNamesMi
 ```python
 class _GraphRolesMixin:
     """Mixin class for handling roles in a causal graph."""
-    self._role_nodes = dict(role: nodes)
-    self._node_roles = dict(node: roles)
+    self._role_nodes = defaultdict(role: nodes)
+    self._node_roles = defaultdict(node: roles)
 ```
 Therefore, I propose storing node roles as shown above.
-With this storage approach, the average time complexity of lookup is `O(1)`, which should improve performance.
+With this storage approach, the average time complexity of lookup is `O(1)`, which should improve performance.(`node->role` also `role-> node`)
 It also makes it possible to look up roles by node and nodes by role.
 
 #### 4. Consider a `get_node()` method that provides information to users.
