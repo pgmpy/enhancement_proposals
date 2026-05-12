@@ -150,24 +150,6 @@ class BayesianNetwork(DAG, _FactorMixin):
 * With this approach, users can continue to use existing APIs such as `BN.get_cpds()` and `JunctionTree.add_factors()`, while also avoiding unnecessary feature development.
 * In addition, by unifying the storage method, internal compatibility between Factors and CPDs is improved.
 
-##### UseCase and API
-```python
-# variables is dict's key
-# factor or cpd are dict's value
-
-# add cpd or factor
-JunctionTree.add_factor(variables=("diff", "intel", "grade"), factor = DiscreteFactor())
-BayesianNetwork.add_cpd(variable = "grade", cpd = TabularCPD())
-BayesianNetwork.add_cpd(variable = "diff", cpd = GAM(distribution="gamma"))
-
-# add several cpds
-BayesianNetwork.add_cpds(
-    ["grade", TabularCPD()],
-    ["diff", GAM(distribution="gamma")]
-)
-
-```
-
 #### 1-2. CPDs and Factors require `state_name` information. (Refactor `_StateNamesMixin`)
 
 * In 1-1, a CPD is added as in `BayesianNetwork.add_cpd(variable="grade", cpd=TabularCPD())`.
@@ -222,6 +204,9 @@ class _StateNamesMixin:
 ```python
 # pgmpy/factor/
 class BaseFactor(BaseEstimator):
+    def __init__():
+        self.factor_ = None
+        
     def fit():
         self._fit()
 
@@ -232,8 +217,12 @@ class BaseFactor(BaseEstimator):
         self._predict_proba()   
 
 class DiscreteFactor(BaseFactor):
+    def __init__():
+        self.factor_ = pd.DataFrame()
+
     def _fit():
         ...
+        # build self.factor_
 
     def _predict():
         ...
@@ -241,8 +230,17 @@ class DiscreteFactor(BaseFactor):
     def _predict_proba():
         ...
 
-class ContinousCPD(ContinousFactor):
+class ContinuousCPD(ContinousFactor):
     ...
+
+class LinearGaussianCPD(ContinuousCPD):
+    def fit(X):
+        # calculate self.beta_, self.std_
+
+    def _predict_proba(X):
+        X = np.asarray(X)
+        mu = beta[0] + np.dot(beta[1:], X)
+        return skpro.distribution.Normal(mu=mu, sigma=sigma)
 
 class TabularCPD(DiscreteFactor):
     def _predict_proba():
@@ -255,12 +253,28 @@ class Categorical():
         ...
     def sample():
         ...
+    def _pmf():
+        ...
+    def _log_pmf():
+        ...
 
 ```
 
+- `FunctionCPD` can be used as a user-customizable CPD. It can return deterministic nodes(physical formulas or logic gates), probabilistic nodes(specific skpro's distributions). Referencing below `UserCase 3`
+```python
+# Defination
+class FunctionCPD(ContinuousCPD):
+    def __init__(distribution, params_fn):
+        self.distribution = distribution
+        self.params_fn = params_fn
+
+    def _predict_proba(self, X):
+        dist_kwargs = self.params_fn(X)
+        return self.distribution(**dist_kwargs)
+
 #### 2. Consider the parameter learning way. (Implement `HybridEstimator`)
 * Previously, I considered storing `estimator` information together as node attributes.
-* However, pgmpy follows a factory-pattern-oriented approach, and `estimator` information is held by dedicated parameter learning estimators such as `DiscreteMLE`.
+* However, pgmpy follows a strategy-pattern-oriented approach, and `estimator` information is held by dedicated parameter learning estimators such as `DiscreteMLE`.
 * Therefore, my proposal is to implement a `HybridEstimator` class and specify the learning method for each `variable` through a `config`.
 * `HybridEstimator` is responsible only for orchestrating learning based on the `config` information.
 
@@ -298,6 +312,7 @@ It also makes it possible to look up roles by node and nodes by role.
 * In the `_StateNamesMixin`, `_FactorMixin`, and `_GraphRolesMixin` described above, data is stored in `self._state_names`, `self._factors`, and `self._role_nodes`.
 * A view method is needed so that users can inspect each piece of information in an integrated way.
 
+- example API
 ```python
 # DAG
 dag.get_node("B")
@@ -430,10 +445,10 @@ https://proceedings.mlr.press/v2/yuan07a.html
 | `build_state_names()` | `data` | - |
 | `get_state_name()` | `key` | `key`<br>`value` |
 | `add_state_name()` | `key`<br>`value` | - |
-| `remove_state_name()` | `key`<br>`value` | - |
+| `remove_state_name()` | `key` | - |
 | `get_state_names()` | - | All `state`'s info |
 | `add_state_names()` | `list[key, value]` | - |
-| `remove_state_names()` | `list[key, value]` | - |
+| `remove_state_names()` | `list[key]` | - |
 
 #### `BayesianNetwork`
 | Method | Input | Return |
@@ -458,8 +473,25 @@ https://proceedings.mlr.press/v2/yuan07a.html
 #### `HybridEstimator`
 | Method | Input | Return |
 | - | - | - |
-| `__init__()` | - | - |
+| `__init__()` | `config` | - |
 | `fit()` | `model`,<br>`data`<br>`config` | - |
+
+#### `BaseFactor`
+| Method | Input | Return |
+| - | - | - |
+| `__init__()` | - | - |
+| `fit()` | `X: pd.DataFrame` | `y: pd.DataFrame` |
+| `predict()` | `X: pd.DataFrame` | `y: pd.DataFrame` |
+| `predict_proba()` | `X: pd.DataFrame` | `pgmpy/Distribution` |
+
+#### `Categorical`
+| Method | Input | Return |
+| - | - | - |
+| `__init__()` | - | - |
+| `sample()` | `n_samples: int` | `pd.DataFrame` |
+| `plot()` | - | `mathplotlib.figure` |
+| `_pmf()` | `X: pd.DataFrame` | - |
+| `log_pmf()` | `X: pd.DataFrame` | - |
 
 
 ### User journeys with the solution
@@ -509,3 +541,60 @@ infer.query()
 
 ```
 
+##### UseCase 2: Adding CPD and factor's API
+```python
+# variables is dict's key
+# factor or cpd are dict's value
+
+# add cpd or factor
+JunctionTree.add_factor(variables=("diff", "intel", "grade"), factor = DiscreteFactor())
+BayesianNetwork.add_cpd(variable = "grade", cpd = TabularCPD())
+BayesianNetwork.add_cpd(variable = "diff", cpd = GAM(distribution="gamma"))
+
+# add several cpds
+BayesianNetwork.add_cpds(
+    ["grade", TabularCPD()],
+    ["diff", GAM(distribution="gamma")]
+)
+
+```
+
+#### UseCase 3: user-customizable CPD
+```python
+# 1. User Custom function
+def custom_fn(X):
+    mu = X["A"]
+    return {"mu": mu, "sigma": sigma}
+
+# Build User Custom CPD
+CustomCPD = FunctionCPD(
+    skpro.distribution.Poisson(),
+    custom_fn
+)
+
+# 2. AND logic gate
+def AND_gate(X):
+    input1 = X['In1']
+    input2 = X['In2']
+    result = 1 if input1 == 1 and input2 == 1 else 0
+
+    if result == 1:
+        return {'probabilities': [0.0, 1.0]} # [P(0), P(1)]
+    else:
+        return {'probabilities': [1.0, 0.0]}
+
+# Build User Custom CPD with logic gate
+and_cpd = FunctionCPD(Categorical, AND_gate)
+
+# 3. User Custom formula fn with noise
+def newtons_second_law_logic(X):
+    mass = X['m']
+    acceleration = X['a']
+    expected_force = mass * acceleration
+    noise_sigma = 0.5 
+    return {'mu': expected_force, 'sigma': noise_sigma}
+
+# Build User Custom CPD
+force_cpd = FunctionCPD(skpro.distribution.Normal, newtons_second_law_logic)
+
+```
