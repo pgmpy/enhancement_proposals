@@ -271,7 +271,7 @@ class FunctionCPD(ContinuousCPD):
     def _predict_proba(self, X):
         dist_kwargs = self.params_fn(X)
         return self.distribution(**dist_kwargs)
-
+```
 #### 2. Consider the parameter learning way. (Implement `HybridEstimator`)
 * Previously, I considered storing `estimator` information together as node attributes.
 * However, pgmpy follows a strategy-pattern-oriented approach, and `estimator` information is held by dedicated parameter learning estimators such as `DiscreteMLE`.
