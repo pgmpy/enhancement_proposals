@@ -462,12 +462,13 @@ https://proceedings.mlr.press/v2/yuan07a.html
 | `get_nodes()` | `data`,<br>`include_models` | All `node`'s info |
 | `check_model()` | - | `bool` |
 | `get_cardinality()` | `node` | `cardinality: int` |
-| ✨`get_random()` | `n_nodes`,<br> `edge_prob`,<br> `n_states`,<br> `latents`,<br> `seed` | `BayesianNetwork` |
-| ✨`get_random_cpds()` | `n_states`,<br> `latents`,<br> `seed` | `cpd` |
+| `get_random()` | `n_nodes`,<br> `edge_prob`,<br> `n_states`,<br> `latents`,<br> `seed` | `BayesianNetwork` |
+| `get_random_cpds()` | `n_states`,<br> `latents`,<br> `seed` | `cpd` |
+| `simulate()` | `n_samples`<br>`do`<br>`evidence`<br>`virtual_intervention`<br>`include_latents`<br>`seed`<br>`missing_prob` | `data: pd.DataFrame` |
 | ✨`save()` | `file_path`, `filetype` | - |
 | ✨`load()` | `file_path`, `filetype` | - |
 
-- `get_random` `get_random_cpds` [[#3296]((https://github.com/pgmpy/pgmpy/issues/3296))]
+- `get_random` `get_random_cpds` [[#3296]((https://github.com/pgmpy/pgmpy/issues/3296))], [[Proposal#3]](https://github.com/Gitanaskhan26/enhancement_proposals/blob/364e2fbbd789bfda8d25f9c40373a9697b505d15/simulation_mixin/prototype_linear_gaussian_scm.py#L122)
 - I am thinking of supporting only the Python pickle format for `save` and `load`. (Security issues related to the Python pickle format [[13](https://docs.python.org/3/library/pickle.html)])
 
 #### `HybridEstimator`
