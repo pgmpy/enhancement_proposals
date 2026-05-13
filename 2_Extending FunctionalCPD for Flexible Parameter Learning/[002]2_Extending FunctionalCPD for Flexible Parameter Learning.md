@@ -75,7 +75,7 @@ G.add_node(
 
 5. Consider having `UndirectedGraph` inherit from `CoreGraph`.
 6. Provide information on available estimators for user.
-7. Consider inference way. (Implement the `HEPIS-BN` algorithm)
+7. ~~Consider inference way. (Implement the `HEPIS-BN` algorithm)~~
 
 * The architecture that takes the above agenda items into account is as follows. The blue shapes indicate the refactoring scope proposed in this project.
 
@@ -408,7 +408,7 @@ model.set_model("hybrid") # If all data types are discrete, all CPDs are automat
 # Perform structure learning, parameter learning(setting CPD type), and inference.
 ```
 
-#### 7. Consider inference way. (Implement the `HEPIS-BN` algorithm)
+#### 7. ~~Consider inference way. (Implement the `HEPIS-BN` algorithm)~~ (Do not Consider in this proposal [[#3387]](https://github.com/pgmpy/pgmpy/issues/3387))
 
 > I think implementing the inference algorithm as well would make the project scope too broad and therefore difficult.
 > However, I have also been considering a highly general inference algorithm that could be used after parameterizing machine learning models as CPDs.
