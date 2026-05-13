@@ -494,6 +494,32 @@ https://proceedings.mlr.press/v2/yuan07a.html
 | `_pmf()` | `X: pd.DataFrame` | - |
 | `log_pmf()` | `X: pd.DataFrame` | - |
 
+#### `_GraphRolesMixin`
+| Method / Property | Input | Return |
+| - | - | - |
+| `get_role()` | `role` | `list[node: str]` |
+| `get_roles()` | - | `list[role: str]` |
+| `get_role_dict()` | - | `dict[node: str, list[role: str]]` |
+| `has_role()` | `role` | `bool` |
+| `add_role()` | `role`,<br>`variables` | - |
+| `remove_role()` | `role`,<br>`variables` | - |
+| `is_valid_causal_structure()` | - | `bool` |
+| `latents` | - | `latents: set` |
+| `latents.setter` | `variables` | - |
+| `observed` | - | `observed: set` |
+| `observed.setter` | `variables` | - |
+| `exposures` | - | `exposures: set` |
+| `exposures.setter` | `variables` | - |
+| `outcomes` | - | `outcomes: set` |
+| `outcomes.setter` | `variables` | - |
+
+- I think we can rename the method `with_role` -> `add_role` and `without_role` -> `remove_role` for unified method.
+- And we can remove `inplace` parameter from these method. If users want to avoid modifying the original graph, then they can use `copy()`:
+```py
+G = G.copy()
+G.add_role("role", "variables")
+```
+
 
 ### User journeys with the solution
 
