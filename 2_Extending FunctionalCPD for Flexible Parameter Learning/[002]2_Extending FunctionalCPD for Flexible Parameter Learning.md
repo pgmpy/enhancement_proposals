@@ -529,9 +529,9 @@ model.add_cpd(variable ="LVFAILURE", cpd=TabularCPD())
 
 # Parameter Learning
 est_config = {
-    "CVP": "mle",
+    "CVP": "DiscreteMLE",
     "HYPOVOLEMIA": "auto",
-    "LVFAILURE": "mle"
+    "LVFAILURE": "DiscreteMLE"
 }
 est2 = HybridEstimator()
 est2.fit(model, alarm_samples, est_config)
@@ -565,7 +565,7 @@ BayesianNetwork.add_cpds(
 # 1. User Custom function
 def custom_fn(X):
     mu = X["A"]
-    return {"mu": mu, "sigma": sigma}
+    return {"mu": mu}
 
 # Build User Custom CPD
 CustomCPD = FunctionCPD(
@@ -577,15 +577,12 @@ CustomCPD = FunctionCPD(
 def AND_gate(X):
     input1 = X['In1']
     input2 = X['In2']
-    result = 1 if input1 == 1 and input2 == 1 else 0
-
-    if result == 1:
-        return {'probabilities': [0.0, 1.0]} # [P(0), P(1)]
-    else:
-        return {'probabilities': [1.0, 0.0]}
+    mu = 1 if input1 == 1 and input2 == 1 else 0
+    sigma = 0.05
+    return {"mu": mu, "sigma": sigma}
 
 # Build User Custom CPD with logic gate
-and_cpd = FunctionCPD(Categorical, AND_gate)
+and_cpd = FunctionCPD(skpro.distribution.Normal, AND_gate)
 
 # 3. User Custom formula fn with noise
 def newtons_second_law_logic(X):
@@ -597,5 +594,6 @@ def newtons_second_law_logic(X):
 
 # Build User Custom CPD
 force_cpd = FunctionCPD(skpro.distribution.Normal, newtons_second_law_logic)
+
 
 ```
