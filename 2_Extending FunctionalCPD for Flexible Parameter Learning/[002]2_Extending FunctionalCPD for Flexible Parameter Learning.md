@@ -2,6 +2,11 @@
 
 Contributors: @daehyun99
 
+##### Related Paper Link
+- [[1]Bayesian networks with a logistic regression model for the conditional probabilities](https://www.sciencedirect.com/science/article/pii/S0888613X08000121?via%3Dihub)
+- [[2]Probabilistic supervised learning](https://arxiv.org/abs/1801.00753), especially [Section 8: An API for probabilistic supervised learning](https://arxiv.org/pdf/1801.00753.pdf#page=79)
+- [[3]API design for machine learning software: experiences from the scikit-learn project](https://arxiv.org/abs/1309.0238)
+
 ### summary
 
 ![9-3](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/9-3.excalidraw.png)
