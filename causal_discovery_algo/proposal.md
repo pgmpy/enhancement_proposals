@@ -1,4 +1,4 @@
-## Proposal: Continuous Optimization for Causal Discovery (The DAGMA Suite)
+## Continuous Optimization for Causal Discovery
 
 **Contributors**: Syed Abdullah Abrar
 
