@@ -8,9 +8,13 @@ pgmpy's `datasets` module currently supports two kinds of data sources: static f
 (`_BaseDataset.load_dataframe`) and data generated from covariance matrices hosted on the Hub (`_CovarianceMixin`).
 Both paths ultimately return a `pd.DataFrame` through the same `load_dataset()` entry point.
 
-Several datasets relevant to causal discovery benchmarking are *semi-simulated*: the ground-truth graph is known, and
-data is generated from it via a parametric process. The News dataset (LDA-based, from Johansson et al.) and IHDP
-(Hill 2011) fall into this category. Storing a single pre-computed snapshot of these datasets is limiting because:
+pgmpy already provides `model.simulate()` for forward-sampling from fitted probabilistic models
+(e.g., `LinearGaussianBayesianNetwork.simulate()`, `DiscreteBayesianNetwork.simulate()`). This mixin targets a
+different use case: benchmarking datasets defined by external data-generating processes whose parameterization doesn't
+map cleanly to an existing pgmpy model class. Examples include the IHDP response surfaces (Hill 2011), the News
+LDA-based generation (Johansson et al.), and post-nonlinear additive noise models. Users often need to sweep
+hyperparameters, vary sample sizes, and reproduce ground-truth graphs across these literature-defined DGPs without
+manually constructing pgmpy models each time. Storing a single pre-computed snapshot is limiting because:
 
 - Users cannot vary sample size, noise levels, or other hyperparameters.
 - Reproducibility requires explicit seed control, which static files cannot provide.
@@ -193,9 +197,18 @@ def load_dataset(
             n_samples=n_samples, seed=seed, **sim_kwargs
         )
 
+        # Dynamic tags are derived from the returned data, not mutated
+        # on the class. Class-level _tags stay static; we compute the
+        # actual n_samples/n_variables from the DataFrame shape and
+        # record the sim_kwargs that were used for reproducibility.
         tags = target_cls.get_class_tags()
         tags["n_samples"] = data.shape[0]
         tags["n_variables"] = data.shape[1]
+        tags["sim_params_used"] = {
+            "n_samples": data.shape[0],
+            "seed": seed,
+            **sim_kwargs,
+        }
 
         return Dataset(
             name=name,
@@ -231,41 +244,81 @@ def load_dataset(
 Note: the `Dataset` dataclass's `ground_truth` field needs to widen from `DAG | None` to `CausalGraph | None` to
 accommodate the different graph types that simulators can return.
 
-#### 3. Reference simulator: `LinearGaussianSCM`
+#### 3. Parameter discoverability via `sim_params` tag
 
-For the initial validation of the architecture, I'll implement a linear Gaussian SCM simulator. This is a natural
-choice because pgmpy already has `LinearGaussianBayesianNetwork.get_random()` and `.simulate()`, so the simulator
-is thin glue between existing functionality. See the prototype in
+One issue with routing everything through `load_dataset()` is that the user has no way to discover what simulator
+arguments are available without reading the `_simulate()` source code. To address this, each simulator class declares
+its expected parameters in a structured `sim_params` tag:
+
+```python
+_tags = {
+    ...,
+    "sim_params": {
+        "n_nodes": {"default": 5, "desc": "Number of variables in the DAG"},
+        "edge_prob": {"default": 0.3, "desc": "Probability of edge between any two nodes"},
+        "noise_scale": {"default": 1.0, "desc": "Standard deviation of additive Gaussian noise"},
+    },
+}
+```
+
+This enables two things:
+
+- **Pre-call introspection.** `list_datasets(is_simulated=True)` can surface available parameters. A user can also
+  check `SomeSimulator.get_class_tag("sim_params")` to see what the simulator accepts before calling `load_dataset()`.
+
+- **Post-call reproducibility.** After simulation, `load_dataset()` attaches the actual values used (including resolved
+  defaults) to `Dataset.tags["sim_params_used"]`. The user can always inspect `ds.tags["sim_params_used"]` to see
+  exactly how the data was generated.
+
+An alternative is to use `inspect.signature()` to extract parameter names and defaults from `_simulate()` at runtime,
+which would be zero-maintenance. The downside is that it doesn't give descriptions. We could use both: `inspect` for
+auto-discovery, `sim_params` for descriptions when the simulator author provides them. Open to feedback on which
+approach is preferred.
+
+#### 4. Reference simulator: `LinearGaussianSCM`
+
+For the initial validation of the mixin architecture, I'll implement a linear Gaussian SCM simulator. This is a
+proof-of-concept rather than a core use case — pgmpy can already simulate from linear Gaussian models natively via
+`LinearGaussianBayesianNetwork.get_random()` + `.simulate()`. The value of wrapping it in a `_SimulationMixin` class
+is to validate the mixin mechanics (tag routing, `sim_kwargs` forwarding, `Dataset` construction) before building
+the more complex simulators that actually need this architecture. See the prototype in
 [`prototype_linear_gaussian_scm.py`](prototype_linear_gaussian_scm.py).
 
-#### 4. File-level summary of changes
+#### 5. File-level summary of changes
 
 | File | Change |
 |------|--------|
 | `pgmpy/datasets/_base.py` | Add `_SimulationMixin` class (~25 lines, stateless). Update `load_dataset()` signature with `n_samples`, `seed`, `**sim_kwargs`. Add simulation vs. static branching. Widen `Dataset.ground_truth` type from `DAG \| None` to `CausalGraph \| None` (the `Dataset` dataclass lives in this file, line 18-34). |
 | `pgmpy/datasets/__init__.py` | Export `_SimulationMixin`. |
-| `pgmpy/datasets/linear_gaussian_scm.py` | **[NEW]** Reference simulator implementation (~40 lines). |
-| `pgmpy/tests/test_datasets/` | **[NEW]** Tests for mixin routing, sim_kwargs forwarding, seed reproducibility, subsampling for static datasets (including `n_samples > len(df)`), error on sim_kwargs for static datasets. |
+| `pgmpy/datasets/linear_gaussian_scm.py` | **[NEW]** Reference simulator implementation (~40 lines), including `sim_params` tag. |
+| `pgmpy/tests/test_datasets/` | **[NEW]** Tests for mixin routing, sim_kwargs forwarding, seed reproducibility, `sim_params_used` tag on returned Dataset, subsampling for static datasets (including `n_samples > len(df)`), error on sim_kwargs for static datasets. |
 
-#### 5. Open questions
+#### 6. Open questions
 
 **Should we also update the Tubingen special case?** The `tubingen/<pair_id>` branch in `load_dataset()`
 (`_base.py:251-277`) hardcodes `pair_id` handling rather than using `**sim_kwargs`. It would be more consistent to route
 Tubingen through the new parameters too (e.g., `load_dataset("tubingen", pair_id=42)`), but that changes existing
 user-facing behavior. I'd defer this to a separate PR to keep scope tight.
 
-**Tag values for variable-size datasets.** Static datasets have fixed `n_variables` and `n_samples` in their tags.
-Simulated datasets don't—these depend on the kwargs. I set them to `None` in the class tags, and `load_dataset()`
-updates the returned `Dataset.tags` dict with the actual values after simulation (the way it already does for
-Tubingen at `_base.py:266-267`).
+**Tag values for variable-size datasets.** Static datasets have fixed `n_variables` and `n_samples` in their class tags.
+Simulated datasets don't—these depend on the kwargs. The class tags keep `None` for these fields; `load_dataset()`
+computes the actual values from the returned DataFrame shape and writes them to the *returned* `Dataset.tags` dict
+(not the class). This avoids mutating class-level state while still giving the user accurate metadata on the
+`Dataset` object. Same approach as Tubingen (`_base.py:266-267`).
+
+**`sim_params` tag vs. `inspect.signature()`.** The `sim_params` tag requires manual maintenance — if someone changes
+`_simulate()`, they need to update the tag too. `inspect.signature()` would auto-extract parameter names and defaults
+at zero maintenance cost, but can't provide descriptions. Feedback welcome on which approach (or a hybrid) is
+preferred.
 
 ---
 
 ### User journeys with the solution
 
-#### 1. Linear Gaussian SCM (pure simulation, DAG ground truth)
+#### 1. Linear Gaussian SCM (proof-of-concept, DAG ground truth)
 
-The simplest case: generate a random DAG, attach linear Gaussian CPDs, forward-sample.
+This wraps pgmpy's existing `LGBN.get_random()` + `.simulate()` in the mixin pattern. It's a proof-of-concept —
+pgmpy can already do this natively — but it validates the mixin mechanics end-to-end.
 
 ```python
 >>> from pgmpy.datasets import load_dataset
@@ -274,15 +327,23 @@ The simplest case: generate a random DAG, attach linear Gaussian CPDs, forward-s
 (2000, 8)
 >>> type(ds.ground_truth)
 <class 'pgmpy.base.DAG.DAG'>
->>> ds.ground_truth.edges()
-OutEdgeView([('X_2', 'X_0'), ('X_3', 'X_0'), ...])
+>>> ds.tags["sim_params_used"]
+{'n_samples': 2000, 'seed': 42, 'n_nodes': 8, 'edge_prob': 0.3}
 ```
 
 The `_simulate()` for this class:
 
 ```python
 class LinearGaussianSCM(_SimulationMixin, _BaseDataset):
-    _tags = {"name": "linear_gaussian_scm", "is_simulated": True, "has_ground_truth": True, ...}
+    _tags = {
+        "name": "linear_gaussian_scm", "is_simulated": True, "has_ground_truth": True,
+        "sim_params": {
+            "n_nodes": {"default": 5, "desc": "Number of variables in the DAG"},
+            "edge_prob": {"default": 0.3, "desc": "Probability of edge between any two nodes"},
+            "noise_scale": {"default": 1.0, "desc": "Std dev of additive Gaussian noise"},
+        },
+        ...
+    }
 
     @classmethod
     def _simulate(cls, n_samples=1000, seed=None, n_nodes=5, edge_prob=0.3, noise_scale=1.0, **kwargs):
@@ -331,8 +392,17 @@ and `seed` stay at the `load_dataset()` level.
 #### 3. IHDP (semi-simulated: static covariates + synthetic treatment/outcome)
 
 IHDP (Hill, 2011) is a hybrid dataset. Covariates come from a real RCT (the Infant Health and Development Program),
-but treatment assignment and potential outcomes are simulated on top of them. The ground truth is a known DAG over
-`{covariates, treatment, outcome}`.
+but treatment assignment and potential outcomes are simulated on top of them.
+
+The ground-truth DAG is defined deterministically by the DGP specification:
+
+- `X_i → T` for all 25 covariates (treatment assignment depends on covariates)
+- `X_i → Y` for all 25 covariates (outcome depends on covariates)
+- `T → Y` (treatment affects outcome)
+
+No latent confounders in the standard specification — the simulation is fully observed, so the ground truth is a
+`DAG`, not an `ADMG`. The simulator constructs this DAG structure once (it's fixed), then simulates `T` via logistic
+assignment and `Y` using Response Surface A or B from the original paper.
 
 This tests that `_SimulationMixin` can coexist with `_get_raw_data()` — the class uses the Hub to fetch the static
 covariate file, then simulates the rest.
@@ -345,15 +415,23 @@ covariate file, then simulates the rest.
 <class 'pgmpy.base.DAG.DAG'>
 >>> "treatment" in ds.data.columns and "y_obs" in ds.data.columns
 True
+>>> ds.ground_truth.number_of_edges()
+51  # 25 covariates → T, 25 covariates → Y, T → Y
 ```
 
 The `_simulate()` for this class:
 
 ```python
 class IHDP(_SimulationMixin, _BaseDataset):
-    _tags = {"name": "ihdp", "is_simulated": True, "has_ground_truth": True, ...}
+    _tags = {
+        "name": "ihdp", "is_simulated": True, "has_ground_truth": True,
+        "sim_params": {
+            "treatment_noise": {"default": 0.0, "desc": "Noise added to treatment assignment"},
+            "outcome_fn": {"default": "response_surface_A", "desc": "Response surface from Hill 2011"},
+        },
+        ...
+    }
 
-    base_url = "simulated/ihdp"
     covariate_url = "data/ihdp_covariates.csv"
 
     @classmethod
@@ -366,6 +444,13 @@ class IHDP(_SimulationMixin, _BaseDataset):
         if n_samples is not None:
             covariates = covariates.sample(n=n_samples, random_state=seed)
 
+        # Build fixed ground-truth DAG
+        covariate_names = list(covariates.columns)
+        edges = [(x, "treatment") for x in covariate_names]
+        edges += [(x, "y_obs") for x in covariate_names]
+        edges.append(("treatment", "y_obs"))
+        dag = DAG(edges)
+
         # Simulate treatment assignment and potential outcomes
         rng = np.random.default_rng(seed)
         ...
@@ -373,7 +458,8 @@ class IHDP(_SimulationMixin, _BaseDataset):
 ```
 
 Key difference from the Linear Gaussian case: `n_samples=None` has meaningful semantics (use all original subjects),
-and the simulator mixes static data loading with on-the-fly simulation.
+the ground-truth DAG is fixed rather than random, and the simulator mixes static data loading with on-the-fly
+simulation.
 
 #### General user journeys
 
