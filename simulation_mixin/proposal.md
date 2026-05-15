@@ -74,9 +74,10 @@ hypothetically also be simulated. The mixin pattern is already established and w
 
 #### 1. The `_SimulationMixin` class
 
-The mixin follows the same structural pattern as `_CovarianceMixin` (`_base.py:172-213`), but it is fully stateless—no
-class-level caching. `_simulate()` is a pure function: same inputs, same outputs (given a seed). `load_dataset()` acts
-as the single orchestrator that calls `_simulate()` once and wires both outputs into the `Dataset` constructor.
+The mixin follows the same structural pattern as `_CovarianceMixin` (`_base.py:172-213`): it overrides
+`load_dataframe()` and `load_ground_truth()` so that `load_dataset()` can call them without knowing whether the
+underlying data source is static or simulated. This keeps the contract uniform across all mixin classes—no if-else
+branching in `load_dataset()`.
 
 The ground-truth graph returned by `_simulate()` is not restricted to `DAG`. Depending on the simulator, it could be
 a `PDAG` (equivalence class), `ADMG` (latent confounders), `MAG`, or `PAG`. pgmpy's graph classes don't share a single
@@ -100,15 +101,14 @@ CausalGraph = Union[DAG, PDAG, ADMG, MAG]
 class _SimulationMixin:
     """
     Mixin for datasets where data is generated on-the-fly via a simulation
-    process. Subclasses must implement ``_simulate()``.
+    process. Overrides ``load_dataframe`` and ``load_ground_truth`` so that
+    ``load_dataset()`` works uniformly across static and simulated datasets.
 
-    This mixin is stateless. It does not cache simulation results.
-    ``load_dataset()`` is the intended entry point: it calls ``_simulate()``
-    once and passes both the data and ground-truth graph directly to the
-    ``Dataset`` constructor.
+    Subclasses must implement ``_simulate(**kwargs) -> tuple[pd.DataFrame, CausalGraph]``.
 
-    If users call ``_simulate()`` directly, they are responsible for passing
-    the same ``seed`` to get reproducible results.
+    Both ``load_dataframe()`` and ``load_ground_truth()`` call ``_simulate()``
+    independently. Since ``_simulate()`` is deterministic for a given seed,
+    both calls produce consistent results without any shared mutable state.
 
     When using this mixin, it should be the first parent class so that its
     methods take precedence in the MRO (same convention as
@@ -144,42 +144,51 @@ class _SimulationMixin:
         raise NotImplementedError(
             f"{cls.__name__} must implement _simulate()."
         )
+
+    @classmethod
+    def load_dataframe(cls, n_samples=None, seed=None, **sim_kwargs) -> pd.DataFrame:
+        """Override of _BaseDataset.load_dataframe. Generates data via _simulate()."""
+        data, _ = cls._simulate(n_samples=n_samples, seed=seed, **sim_kwargs)
+        return data
+
+    @classmethod
+    def load_ground_truth(cls, n_samples=None, seed=None, **sim_kwargs) -> CausalGraph:
+        """Override of _BaseDataset.load_ground_truth. Returns the graph from _simulate()."""
+        _, gt = cls._simulate(n_samples=n_samples, seed=seed, **sim_kwargs)
+        return gt
 ```
 
 **Why this design:**
 
-- **`_simulate` returns a tuple.** A simulated dataset's ground truth is produced *during* generation (the graph is
-  constructed, then data is sampled from it). Splitting this into two independent methods would either duplicate work or
-  require hidden shared state. The tuple return makes the coupling explicit.
+- **`load_dataframe()` and `load_ground_truth()` are overridden on the mixin.** This is the same contract as
+  `_CovarianceMixin` and `_TubingenBenchmarkMixin`. `load_dataset()` doesn't need to know whether it's dealing with
+  a static dataset, a covariance-generated dataset, or a simulation—it just calls `load_dataframe()` and
+  `load_ground_truth()` on whatever class it resolves. No if-else branching.
 
-- **Stateless, no caching.** Caching at the class level would be incorrect—if the user calls `_simulate()` with
-  different `seed` or `n_samples` values, a cached result would be stale. Instead, `load_dataset()` calls `_simulate()`
-  once per invocation and passes both results into the `Dataset` constructor directly. This avoids the consistency
-  problem entirely.
+- **`_simulate` returns a tuple.** A simulated dataset's ground truth is produced *during* generation (the graph is
+  constructed, then data is sampled from it). The tuple return makes the coupling explicit.
+
+- **No shared mutable state.** Both `load_dataframe()` and `load_ground_truth()` call `_simulate()` independently.
+  This means `_simulate()` runs twice per `load_dataset()` call, but it's deterministic for a given seed so both
+  calls produce consistent results. The tradeoff is simplicity: no cache invalidation logic, no hashability
+  constraints on kwargs, no thread-safety concerns. If double execution becomes a bottleneck for a specific
+  simulator, that simulator can add its own caching internally (e.g., `@functools.lru_cache`).
 
 - **Classmethods, not instance methods.** Every method in the current dataset architecture is a classmethod
-  (`_base.py:132-169`). Switching to instance methods for simulation datasets would break the uniformity that
-  `load_dataset()` relies on (it calls `target_cls.load_dataframe()`, not `target_cls().load_dataframe()`). Per-call
-  hyperparameters are passed as function arguments instead of stored as instance state. This is slightly less ergonomic
-  than instance methods, but it's consistent.
+  (`_base.py:132-169`). Switching to instance methods would break the uniformity that `load_dataset()` relies on.
 
-- **Graph type is not restricted to DAG.** Different simulators produce different graph types. An ANM on a known DAG
-  returns a `DAG`. A simulator that generates data from an equivalence class might return a `PDAG`. A simulator with
-  latent confounders returns an `ADMG`. The `CausalGraph` type alias captures this without forcing all simulators into
-  a single graph class.
+- **Graph type is not restricted to DAG.** Different simulators produce different graph types. The `CausalGraph` type
+  alias captures this without forcing all simulators into a single graph class.
 
 - **Mixin sets `is_simulated` tag.** Each concrete simulator class should set `"is_simulated": True` in its
-  `_tags` dict. I considered having the mixin override `_tags` itself, but `skbase` tag resolution across multiple
-  inheritance is already well-defined—child class tags override parent tags—so it's cleaner to be explicit in each
-  simulator class. This also lets `list_datasets(is_simulated=True)` work without changes.
+  `_tags` dict. This lets `list_datasets(is_simulated=True)` work without changes.
 
 #### 2. Changes to `load_dataset()`
 
-Two changes: (a) add explicit `n_samples` and `seed` parameters, and (b) branch on simulation vs. static datasets.
+The key point: `load_dataset()` stays polymorphic. Because `_SimulationMixin` overrides `load_dataframe()` and
+`load_ground_truth()`, the existing dispatch in `load_dataset()` works without any if-else branching on mixin type.
 
-Making `n_samples` and `seed` explicit top-level parameters (rather than burying them in `**kwargs`) keeps the API
-uniform across all datasets. For static datasets, `n_samples` subsamples the loaded data with the given `seed`. For
-simulated datasets, both are forwarded to `_simulate()` along with any simulator-specific `**sim_kwargs`.
+The only change is adding `n_samples`, `seed`, and `**sim_kwargs` to the signature and forwarding them:
 
 ```python
 def load_dataset(
@@ -190,56 +199,34 @@ def load_dataset(
 ) -> Dataset:
     target_cls = _resolve_dataset_class(name)  # existing lookup logic
 
-    if issubclass(target_cls, _SimulationMixin):
-        # Simulated dataset: call _simulate() directly, wire both outputs
-        # into the Dataset constructor. No intermediate caching.
-        data, ground_truth = target_cls._simulate(
-            n_samples=n_samples, seed=seed, **sim_kwargs
-        )
-
-        # Dynamic tags are derived from the returned data, not mutated
-        # on the class. Class-level _tags stay static; we compute the
-        # actual n_samples/n_variables from the DataFrame shape and
-        # record the sim_kwargs that were used for reproducibility.
-        tags = target_cls.get_class_tags()
-        tags["n_samples"] = data.shape[0]
-        tags["n_variables"] = data.shape[1]
-        tags["sim_params_used"] = {
-            "n_samples": data.shape[0],
-            "seed": seed,
-            **sim_kwargs,
-        }
-
-        return Dataset(
-            name=name,
-            data=data,
-            expert_knowledge=None,
-            ground_truth=ground_truth,
-            tags=tags,
-        )
-    else:
-        # Static dataset: sim_kwargs should be empty
-        if sim_kwargs:
-            raise ValueError(
-                f"Dataset '{name}' is not a simulation dataset and does not "
-                f"accept simulator arguments. Got: {list(sim_kwargs.keys())}"
-            )
-
-        df = target_cls.load_dataframe()
-
-        # Subsample if n_samples is specified
-        if n_samples is not None:
-            n_samples = min(n_samples, len(df))
-            df = df.sample(n=n_samples, random_state=seed)
-
-        return Dataset(
-            name=name,
-            data=df,
-            expert_knowledge=target_cls.load_expert_knowledge(),
-            ground_truth=target_cls.load_ground_truth(),
-            tags=target_cls.get_class_tags(),
-        )
+    return Dataset(
+        name=name,
+        data=target_cls.load_dataframe(n_samples=n_samples, seed=seed, **sim_kwargs),
+        expert_knowledge=target_cls.load_expert_knowledge(),
+        ground_truth=target_cls.load_ground_truth(n_samples=n_samples, seed=seed, **sim_kwargs),
+        tags=target_cls.get_class_tags(),
+    )
 ```
+
+For static datasets (`_BaseDataset`), `load_dataframe()` and `load_ground_truth()` don't accept these kwargs. To
+handle this cleanly, `_BaseDataset.load_dataframe()` can be updated to accept optional `n_samples` and `seed`
+parameters for subsampling:
+
+```python
+# In _BaseDataset
+@classmethod
+def load_dataframe(cls, n_samples=None, seed=None, **kwargs) -> pd.DataFrame:
+    df = cls._load_raw_dataframe()  # existing logic
+    if n_samples is not None:
+        n_samples = min(n_samples, len(df))
+        df = df.sample(n=n_samples, random_state=seed)
+    return df
+```
+
+This way `n_samples` and `seed` are universal parameters that work across all dataset types—subsampling for static
+datasets, generation size for simulated datasets. `**sim_kwargs` are consumed only by `_SimulationMixin.load_dataframe()`;
+passing them to a static dataset's `load_dataframe()` would raise a `TypeError` from Python's call mechanics, which
+is a clear enough error.
 
 Note: the `Dataset` dataclass's `ground_truth` field needs to widen from `DAG | None` to `CausalGraph | None` to
 accommodate the different graph types that simulators can return.
