@@ -56,3 +56,47 @@ print("Edges:", dag.edges())
 preds = model.predict(df[['A', 'B']])
 ```
 
+## CASTLE — Test Plan
+
+All tests use fixed `random_state=42` and small synthetic DAGs generated via `utils.gen_data_nonlinear` (mirroring the reference implementation) so results are deterministic and fast. A shared 5-node linear DAG fixture with 500 samples is the default dataset unless stated otherwise.
+
+### 1. Basic Input / Output Tests
+
+* **Fit returns self and sets attributes**: `CASTLE.fit(df)` returns the estimator instance; `causal_graph_`, `adjacency_matrix_`, `model_`, `scaler_`, `predictor_names_`, and `cols_` are all set after the call.
+* **Output shapes are correct**: `adjacency_matrix_` is `(d, d)`; `predict(X_test)` returns a 1-D array of length `N`; `get_W()` inside `_CASTLEModel` returns `(d, d)`.
+* **Target column selection**: Fit with `target_col` as a string name, as an integer index, and omitted (defaults to first column) — all three produce identical `cols_[0]`.
+* **Invalid target raises `ValueError`**: Passing a column name not in `X` or an out-of-range integer index raises `ValueError`.
+* **Predict column alignment**: `predict` called with a DataFrame whose columns match `predictor_names_` returns the same result as calling it with the equivalent numpy array in the same column order.
+* **DataFrame and numpy inputs**: `fit` accepts both `pd.DataFrame` and validates that non-numeric input raises.
+* **Single-column input is rejected gracefully**: A DataFrame with one column raises `ValueError` before any training begins, with a clear message.
+* **Hyperparameter edge cases do not crash**: `max_epochs=1`, `batch_size=1`, `batch_size > N`, `n_hidden=1` — all complete without error and produce a valid DAG.
+
+### 2. Network Correctness Tests
+
+* **Self-masking is enforced**: After initialisation and after training, `model_.get_W().diagonal()` is all zeros — no feature reconstructs itself.
+* **Mask buffers survive a round-trip**: Save and reload `model_.state_dict()`; verify all `mask_{i}` buffers are unchanged (persistent buffer registration).
+* **`forward` output shapes**: `Out.shape == (B, d)` and `out_0.shape == (B, 1)` for a random batch of size `B`.
+* **Supervised loss decreases**: Record supervised loss at epoch 1 and epoch `max_epochs`; assert final < initial.
+* **Reconstruction loss decreases**: Same check on the MSE reconstruction term across epochs.
+* **`h(W)` trends downward within a tolerance**: Record `_dag_constraint(model_.get_W())` at epoch 1 and final epoch. The final value does not need to reach zero — assert only that it has decreased by at least 50% from the initial value. An absolute floor of `h < 0.5` is an additional soft check logged but not a hard failure.
+* **`rho` doubles correctly**: When `h(W)` fails to decrease by 75% between epochs, the trainer's internal `rho` doubles. Tested by patching the `h` value returned inside the epoch loop to a fixed constant.
+* **Group-lasso drives sparsity**: Train with high `reg_beta` (e.g. 50) and low `reg_beta` (e.g. 0.1); assert that high `reg_beta` yields strictly fewer non-zero entries in `W_final`.
+
+### 3. DAG Validity Tests
+
+* **Output is a valid DAG**: `nx.is_directed_acyclic_graph(causal_graph_)` is `True` after every fit, across 5 random seeds.
+* **No self-loops**: `causal_graph_` contains no edge `(v, v)` for any node `v`.
+* **Threshold is applied**: All entries in `adjacency_matrix_` are either zero or `≥ w_threshold`; no values fall in `(0, w_threshold)`.
+* **Varying `w_threshold` changes graph density monotonically**: Fit once; apply three thresholds `[0.1, 0.3, 0.5]` to `adjacency_matrix_`; verify edge count is non-increasing.
+
+### 4. Model Quality Tests
+
+* **Predictions are in original scale**: The network outputs in standardised space; `predict()` applies `scaler_.inverse_transform` before returning. The test checks this step is not accidentally skipped: the mean and standard deviation of `predict(X_test)` must be within a reasonable range of the target column's original mean and std, not of the zero-mean unit-variance scaled version.
+* **Reproducibility**: Two `CASTLE` instances with the same `random_state` and hyperparameters, fit on the same data, produce byte-identical `adjacency_matrix_` values and identical `predict` outputs.
+
+### 5. Additional Tests
+
+* **`_CASTLEModel` and `_CASTLETrainer` are independently instantiable**: Both internal classes can be constructed and used without going through `CASTLE.fit`, confirming the three-class separation holds at the unit level.
+* **Scaler is fit on training data only**: `scaler_.mean_` and `scaler_.scale_` match those of a separately fitted `StandardScaler` on the same training split, confirming test data has not leaked into the scaler.
+* **Missing `torch` raises a clean error**: Importing `CASTLE` without `torch` installed raises `ImportError` with an actionable install message, not a bare `ModuleNotFoundError`.
+* **`fit` → `predict` is stateless across calls**: Calling `predict` twice on the same input returns identical results — no stochastic behaviour during inference.
