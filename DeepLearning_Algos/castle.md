@@ -13,52 +13,46 @@
 * Uses `torch.linalg.matrix_exp` to perform trace calculation for DAG constraints efficiently.
 * Provides a mechanism for handling both unregularised predictive inputs and graph discovery.
 
-**API:**
-```python
-from pgmpy.causal_discovery.base import _BaseCausalDiscovery
-import pandas as pd
-import numpy as np
+## API
 
-class CASTLE(_BaseCausalDiscovery):
-    def __init__(
-        self,
-        reg_lambda: float = 1.0,
-        reg_beta: float = 5.0,
-        rho: float = 1.0,
-        lr: float = 0.001,
-        batch_size: int = 32,
-        n_hidden: int = 32,
-        w_threshold: float = 0.3,
-        max_epochs: int = 200,
-        random_state: int | None = None,
-    ):
-        ...
+### `_CASTLEModel(nn.Module)` (Internal)
+PyTorch masked autoencoder for feature reconstruction and target prediction.
+* **`__init__(num_inputs, n_hidden)`**: Initializes masked input layers and scalar output layers.
+* **`forward(X)`**: Returns full reconstruction (`Out`) and target prediction (`out_0`).
+* **`get_W()`**: Computes adjacency matrix from current weights (L2 norm of column $j$ in sub-network $i$).
 
-    def fit(self, X: pd.DataFrame, y=None, **kwargs) -> "CASTLE":
-        ...
+### `_CASTLETrainer` (Internal)
+Handles the training loop and Augmented Lagrangian updates.
+* **`__init__(...)`**: Configures hyperparameters (`rho`, `reg_lambda`, `reg_beta`, `w_threshold`) and optimizer.
+* **`train(X_tensor)`**: Runs epochs (batch updates, Lagrangian multiplier adjustments) and returns the thresholded adjacency matrix (`W_final`).
 
-    def _fit(self, X: pd.DataFrame, target_col=None) -> "CASTLE":
-        ...
+### `CASTLE(_BaseCausalDiscovery)` (Public API)
+Validates data, orchestrates training, and builds the `pgmpy.DAG`.
+* **`__init__(reg_lambda=1.0, reg_beta=5.0, rho=1.0, lr=0.001, batch_size=32, n_hidden=32, w_threshold=0.3, max_epochs=200, random_state=None)`**
+* **`fit(X, target_col=None)`**: Trains the model and builds the DAG. `target_col` defaults to the first column.
+* **`predict(X)`**: Predicts the target column using the learned sub-network.
+* **`get_dag()`**: Returns the learned causal graph as a `pgmpy.base.DAG`.
+* **`get_adjacency_matrix()`**: Returns a Pandas DataFrame of the edge weights.
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        ...
+## Usage
 
-    def get_adjacency_matrix(self) -> pd.DataFrame:
-        ...
-
-    def get_dag(self) -> "DAG":
-        ...
-```
-
-**Usage:**
 ```python
 from pgmpy.causal_discovery import CASTLE
 import pandas as pd
+import numpy as np
 
-df = pd.read_csv("data.csv")
-model = CASTLE(max_epochs=200, random_state=42)
+# Load data
+df = pd.DataFrame(np.random.randn(100, 3), columns=['A', 'B', 'Target'])
+
+# Initialize and fit
+model = CASTLE(max_epochs=200, w_threshold=0.3, random_state=42)
 model.fit(df, target_col="Target")
-print(model.causal_graph_.edges())
+
+# Access results
+dag = model.get_dag()
+print("Edges:", dag.edges())
+
+# Predict
+preds = model.predict(df[['A', 'B']])
 ```
 
-**Tests (`pgmpy/tests/test_causaldiscovery/test_castle.py`):** Synthetic DAGs (e.g. from bnlearn simulating the Asia network) will be generated. Tests will assert whether the learned DAG captures the structural relationships accurately according to the simulated DAG, and checks the predictive MSE on unseen data.
