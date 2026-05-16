@@ -5,10 +5,10 @@ This file demonstrates how a concrete simulator dataset class would look
 using the proposed _SimulationMixin architecture. It is included alongside
 the proposal for reference and is not intended to be merged as-is into pgmpy.
 
-The mixin overrides load_dataframe() and load_ground_truth() so that
-load_dataset() works polymorphically — no if-else branching needed.
-Both methods call _simulate() directly. Since _simulate() is deterministic
-for a given seed, both calls produce consistent results without shared state.
+The mixin declares the contract: concrete classes must override
+load_dataframe() and load_ground_truth(). How each class structures
+its internals is up to it — the mixin doesn't enforce any particular
+decomposition.
 
 See proposal.md for the full design discussion.
 """
@@ -34,15 +34,9 @@ CausalGraph = Union[DAG, PDAG, ADMG, MAG]
 
 class _SimulationMixin:
     """
-    Mixin for datasets where data is generated on-the-fly via a simulation
-    process. Overrides ``load_dataframe`` and ``load_ground_truth`` so that
-    ``load_dataset()`` works uniformly across static and simulated datasets.
-
-    Subclasses must implement ``_simulate(**kwargs) -> tuple[pd.DataFrame, CausalGraph]``.
-
-    Both ``load_dataframe()`` and ``load_ground_truth()`` call ``_simulate()``
-    independently. Since ``_simulate()`` is deterministic for a given seed,
-    both calls produce consistent results without any shared mutable state.
+    Mixin for simulated datasets. Concrete classes must override
+    ``load_dataframe()`` and ``load_ground_truth()`` with their own
+    simulation logic.
 
     When using this mixin, it should be the first parent class so that its
     methods take precedence in the MRO (same convention as
@@ -50,44 +44,14 @@ class _SimulationMixin:
     """
 
     @classmethod
-    def _simulate(
-        cls,
-        n_samples: int | None = None,
-        seed: int | None = None,
-        **sim_kwargs,
-    ) -> tuple[pd.DataFrame, CausalGraph]:
-        """
-        Generate simulated data and the ground-truth causal graph.
-
-        Must be implemented by each simulator dataset class.
-
-        Parameters
-        ----------
-        n_samples : int or None
-            Number of samples to generate.
-        seed : int or None
-            Seed for reproducibility.
-        **sim_kwargs
-            Simulator-specific hyperparameters.
-
-        Returns
-        -------
-        tuple[pd.DataFrame, CausalGraph]
-            (data, ground_truth_graph)
-        """
-        raise NotImplementedError(f"{cls.__name__} must implement _simulate().")
-
-    @classmethod
     def load_dataframe(cls, n_samples=None, seed=None, **sim_kwargs) -> pd.DataFrame:
-        """Override of _BaseDataset.load_dataframe. Generates data via _simulate()."""
-        data, _ = cls._simulate(n_samples=n_samples, seed=seed, **sim_kwargs)
-        return data
+        """Generate and return simulated data. Must be implemented by each simulator."""
+        raise NotImplementedError(f"{cls.__name__} must implement load_dataframe().")
 
     @classmethod
     def load_ground_truth(cls, n_samples=None, seed=None, **sim_kwargs) -> CausalGraph:
-        """Override of _BaseDataset.load_ground_truth. Returns the graph from _simulate()."""
-        _, gt = cls._simulate(n_samples=n_samples, seed=seed, **sim_kwargs)
-        return gt
+        """Construct and return the ground-truth graph. Must be implemented by each simulator."""
+        raise NotImplementedError(f"{cls.__name__} must implement load_ground_truth().")
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +63,8 @@ class LinearGaussianSCM(_SimulationMixin, _BaseDataset):
     """
     Simulator for linear Gaussian structural causal models.
 
-    Generates a random DAG with Gaussian noise and samples from it.
-    Uses ``LinearGaussianBayesianNetwork.get_random()`` to build the model
-    and ``.simulate()`` to draw samples.
+    Generates a random LGBN model (graph + CPDs) via a shared _build_model()
+    helper, then extracts the DAG or simulates data from it.
     """
 
     _tags = {
@@ -126,27 +89,27 @@ class LinearGaussianSCM(_SimulationMixin, _BaseDataset):
     }
 
     @classmethod
-    def _simulate(
-        cls,
-        n_samples: int | None = 1000,
-        seed: int | None = None,
-        n_nodes: int = 5,
-        edge_prob: float = 0.3,
-        noise_scale: float = 1.0,
-        **kwargs,
-    ) -> tuple[pd.DataFrame, DAG]:
+    def _build_model(cls, seed=None, n_nodes=5, edge_prob=0.3, noise_scale=1.0, **kwargs):
+        """Shared helper: builds the LGBN model (graph + CPDs)."""
         from pgmpy.models import LinearGaussianBayesianNetwork as LGBN
 
-        model = LGBN.get_random(
-            n_nodes=n_nodes,
-            edge_prob=edge_prob,
-            scale=noise_scale,
-            seed=seed,
+        return LGBN.get_random(
+            n_nodes=n_nodes, edge_prob=edge_prob, scale=noise_scale, seed=seed
         )
-        data = model.simulate(n_samples=n_samples, seed=seed)
-        ground_truth = DAG(model.edges())
 
-        return data, ground_truth
+    @classmethod
+    def load_ground_truth(cls, n_samples=None, seed=None, n_nodes=5, edge_prob=0.3, **kwargs):
+        model = cls._build_model(seed=seed, n_nodes=n_nodes, edge_prob=edge_prob, **kwargs)
+        return DAG(model.edges())
+
+    @classmethod
+    def load_dataframe(cls, n_samples=1000, seed=None, n_nodes=5,
+                       edge_prob=0.3, noise_scale=1.0, **kwargs):
+        model = cls._build_model(
+            seed=seed, n_nodes=n_nodes, edge_prob=edge_prob,
+            noise_scale=noise_scale, **kwargs
+        )
+        return model.simulate(n_samples=n_samples, seed=seed)
 
 
 # ---------------------------------------------------------------------------
@@ -156,20 +119,21 @@ class LinearGaussianSCM(_SimulationMixin, _BaseDataset):
 if __name__ == "__main__":
     # Test 1: load_dataframe and load_ground_truth produce consistent results
     df = LinearGaussianSCM.load_dataframe(n_samples=100, seed=42, n_nodes=6)
-    dag = LinearGaussianSCM.load_ground_truth(n_samples=100, seed=42, n_nodes=6)
+    dag = LinearGaussianSCM.load_ground_truth(seed=42, n_nodes=6)
     print(f"Consistent call: {df.shape[0]} samples, {df.shape[1]} variables, {dag.number_of_edges()} edges")
     assert df.shape[1] == 6, f"Expected 6 variables, got {df.shape[1]}"
     assert df.shape[0] == 100, f"Expected 100 samples, got {df.shape[0]}"
+    assert set(df.columns) == set(dag.nodes()), "Column names should match DAG nodes"
 
-    # Test 2: Different kwargs produce different results (no stale state)
+    # Test 2: Different kwargs produce different results
     df2 = LinearGaussianSCM.load_dataframe(n_samples=200, seed=7, n_nodes=4)
-    dag2 = LinearGaussianSCM.load_ground_truth(n_samples=200, seed=7, n_nodes=4)
+    dag2 = LinearGaussianSCM.load_ground_truth(seed=7, n_nodes=4)
     print(f"Different kwargs: {df2.shape[0]} samples, {df2.shape[1]} variables, {dag2.number_of_edges()} edges")
     assert df.shape != df2.shape, "Different kwargs should produce different results"
 
     # Test 3: Reproducibility (same seed = same output)
     df3 = LinearGaussianSCM.load_dataframe(n_samples=100, seed=42, n_nodes=6)
-    dag3 = LinearGaussianSCM.load_ground_truth(n_samples=100, seed=42, n_nodes=6)
+    dag3 = LinearGaussianSCM.load_ground_truth(seed=42, n_nodes=6)
     assert df.equals(df3), "Reproducibility failed: DataFrames differ"
     assert set(dag.edges()) == set(dag3.edges()), "Reproducibility failed: DAGs differ"
     print("Reproducibility: OK")
