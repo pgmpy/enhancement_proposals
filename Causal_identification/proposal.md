@@ -206,7 +206,7 @@ print(expr.to_latex())
  
 #### ID and IDC - Complete Identification of P(y | do(x)) and P(y | do(x), z)
 
-These two algorithms will be implemented as the part of the Issue [#2529](https://github.com/pgmpy/pgmpy/issues/2529). Before the Impleentation of the ID algorithms we need to add method to `get_c_components()` Issue [#3079](https://github.com/pgmpy/pgmpy/issues/3079) to the `ADMG` class.
+These two algorithms will be implemented as the part of the Issue [#2529](https://github.com/pgmpy/pgmpy/issues/2529). Before the Implementation of the ID algorithms we need to add method to `get_c_components()` Issue [#3079](https://github.com/pgmpy/pgmpy/issues/3079) to the `ADMG` class.
 
 The `ID` algorithm (Shpitser & Pearl, 2006) is complete for semi-Markovian causal models. It can identify any identifiable interventional distribution, and when identification is not possible, it raises a `HedgeException` that includes the subgraph responsible.
  
@@ -275,7 +275,6 @@ class IDC(ProbabilityExpression):
     ... )
     >>> result = IDC().identify(admg)
     >>> print(result.to_latex())
-    \frac{P(Y, Z \mid do(X))}{P(Z \mid do(X))}
     """
     supported_graph_types = (ADMG,)
  
@@ -330,7 +329,7 @@ class IDStar(ProbabilityExpression):
                                   self.counterfactual_query)
 ```
  
-### `SigmaID` - Identification from Multiple Data Sources
+#### `SigmaID` - Identification from Multiple Data Sources
  
 sigma-ID (Bareinboim & Pearl, 2012) handles the case where you have more than one data source, for example an observational dataset alongside a partial randomised experiment. It generalises the ID algorithm to make use of this extra information, using sigma-calculus annotated graphs to track which variables were randomised in each source.
  
