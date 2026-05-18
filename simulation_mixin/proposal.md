@@ -100,7 +100,7 @@ class _SimulationMixin:
         )
 
     @classmethod
-    def load_ground_truth(cls, n_samples=None, seed=None, **sim_kwargs) -> CausalGraph:
+    def load_ground_truth(cls, **sim_kwargs) -> CausalGraph:
         """Construct and return the ground-truth graph. Must be implemented by each simulator."""
         raise NotImplementedError(
             f"{cls.__name__} must implement load_ground_truth()."
@@ -135,48 +135,35 @@ def load_dataset(
     target_cls = _resolve_dataset_class(name)  # existing lookup logic
 
     df = target_cls.load_dataframe(n_samples=n_samples, seed=seed, **sim_kwargs)
-    gt = target_cls.load_ground_truth(n_samples=n_samples, seed=seed, **sim_kwargs)
-
-    tags = target_cls.get_class_tags().copy()
-    tags["n_samples"] = df.shape[0]
-    tags["n_variables"] = df.shape[1]
-    if sim_kwargs:
-        tags["sim_params_used"] = {"n_samples": df.shape[0], "seed": seed, **sim_kwargs}
-    elif tags.get("sim_params") is not None:
-        tags["sim_params_used"] = {"n_samples": df.shape[0], "seed": seed}
+    gt = target_cls.load_ground_truth(seed=seed, **sim_kwargs)
 
     return Dataset(
         name=name,
         data=df,
         expert_knowledge=target_cls.load_expert_knowledge(),
         ground_truth=gt,
-        tags=tags,
+        tags=target_cls.get_class_tags(),
     )
 ```
 
-`**sim_kwargs` are forwarded through the common method contract. Static datasets (`_BaseDataset`) only accept `n_samples` and `seed` — passing simulator arguments to them raises a `TypeError` naturally from Python's call mechanics. No custom validation needed.
+`**sim_kwargs` are forwarded through the common method contract. Static datasets (`_BaseDataset`) don't accept `**sim_kwargs` in their `load_dataframe()` — passing simulator arguments to them raises a `TypeError` naturally from Python's call mechanics. No custom validation needed.
 
-To make `load_dataset()` forward `n_samples`, `seed`, and `**sim_kwargs` uniformly, the existing base and mixin methods need compatible signatures:
+To support `n_samples` and `seed`, the existing `_BaseDataset.load_dataframe()` adds subsampling after its current CSV-loading logic:
 
 ```python
-# In _BaseDataset — factor existing CSV-loading logic into a helper
+# In _BaseDataset — add n_samples/seed after existing logic (lines 166-168)
 @classmethod
 def load_dataframe(cls, n_samples=None, seed=None) -> pd.DataFrame:
-    df = cls._load_raw_dataframe()  # new helper wrapping existing CSV/HuggingFace logic
+    # ... existing CSV/HuggingFace loading logic stays unchanged ...
     if n_samples is not None:
         n_samples = min(n_samples, len(df))
         df = df.sample(n=n_samples, random_state=seed)
     return df
-
-@classmethod
-def load_ground_truth(cls, n_samples=None, seed=None) -> DAG | None:
-    # existing logic, signature updated to accept n_samples/seed
-    ...
 ```
 
-`_CovarianceMixin.load_dataframe()` also needs to accept `n_samples` and `seed` for compatibility, since covariance datasets are already marked `is_simulated=True` and `load_dataset()` will forward these parameters.
+`_BaseDataset.load_ground_truth()` adds `**kwargs` to absorb forwarded arguments it doesn't use (like `seed`), so `load_dataset()` can call it uniformly without branching.
 
-`n_samples` and `seed` are universal parameters: subsampling for static datasets, generation size for simulated datasets.
+`_CovarianceMixin.load_dataframe()` also needs to accept `n_samples` and `seed` for compatibility, since covariance datasets are already marked `is_simulated=True` and `load_dataset()` will forward these parameters.
 
 Note: the `Dataset` dataclass's `ground_truth` field needs to widen from `DAG | None` to `CausalGraph | None` to accommodate the different graph types that simulators can return.
 
@@ -195,14 +182,9 @@ _tags = {
 }
 ```
 
-This enables two things:
+This enables **pre-call introspection**: users can filter simulated datasets with `list_datasets(is_simulated=True)` and inspect parameters with `SomeSimulator.get_class_tag("sim_params")` to see what the simulator accepts before calling `load_dataset()`.
 
-- **Pre-call introspection.** Users can filter simulated datasets with `list_datasets(is_simulated=True)` and inspect parameters with `SomeSimulator.get_class_tag("sim_params")` to see what the simulator accepts before calling `load_dataset()`.
-
-- **Post-call reproducibility.** After simulation, `load_dataset()` attaches the user-provided simulator arguments (plus `n_samples` and `seed`) to `Dataset.tags["sim_params_used"]`. The user can inspect this to see how the data was generated. Note: this records explicitly passed arguments, not resolved defaults.
-
-An alternative is to use `inspect.signature()` to extract parameter names and defaults from `load_dataframe()` and `load_ground_truth()` at runtime, which would be zero-maintenance. The downside is that it doesn't give descriptions. We could use both: `inspect` for auto-discovery, `sim_params` for descriptions when the simulator author provides
-them. Open to feedback on which approach is preferred.
+An alternative is to use `inspect.signature()` to extract parameter names and defaults from `load_dataframe()` and `load_ground_truth()` at runtime, which would be zero-maintenance. The downside is that it doesn't give descriptions. We could use both: `inspect` for auto-discovery, `sim_params` for descriptions when the simulator author provides them. Open to feedback on which approach is preferred.
 
 #### 4. Reference simulator: `LinearGaussianSCM`
 
@@ -212,16 +194,16 @@ For the initial validation of the mixin architecture, I'll implement a linear Ga
 
 | File | Change |
 |------|--------|
-| `pgmpy/datasets/_base.py` | Add `_SimulationMixin` class (~15 lines). Update `load_dataset()` signature with `n_samples`, `seed`, `**sim_kwargs`. Update `_BaseDataset.load_dataframe()` and `load_ground_truth()` to accept `n_samples`/`seed`. Update `_CovarianceMixin.load_dataframe()` to accept `n_samples`/`seed` for compatibility. Factor existing CSV-loading logic into `_load_raw_dataframe()` helper. Widen `Dataset.ground_truth` type from `DAG \| None` to `CausalGraph \| None`. |
+| `pgmpy/datasets/_base.py` | Add `_SimulationMixin` class (~15 lines). Update `load_dataset()` signature with `n_samples`, `seed`, `**sim_kwargs`. Add `n_samples`/`seed` subsampling to `_BaseDataset.load_dataframe()` after existing CSV logic. Update `_CovarianceMixin.load_dataframe()` to accept `n_samples`/`seed` for compatibility. Widen `Dataset.ground_truth` type from `DAG \| None` to `CausalGraph \| None`. |
 | `pgmpy/datasets/__init__.py` | Export `_SimulationMixin`. |
 | `pgmpy/datasets/linear_gaussian_scm.py` | **[NEW]** Reference simulator implementation (~40 lines), including `sim_params` tag. |
-| `pgmpy/tests/test_datasets/` | **[NEW]** Tests for mixin routing, sim_kwargs forwarding, seed reproducibility, `sim_params_used` tag on returned Dataset, subsampling for static datasets (including `n_samples > len(df)`). |
+| `pgmpy/tests/test_datasets/` | **[NEW]** Tests for mixin routing, sim_kwargs forwarding, seed reproducibility, subsampling for static datasets (including `n_samples > len(df)`). |
 
 #### 6. Open questions
 
 **Should we also update the Tubingen special case?** The `tubingen/<pair_id>` branch in `load_dataset()` (`_base.py:251-277`) hardcodes `pair_id` handling rather than using `**sim_kwargs`. It would be more consistent to route Tubingen through the new parameters too (e.g., `load_dataset("tubingen", pair_id=42)`), but that changes existing user-facing behavior. I'd defer this to a separate PR to keep scope tight.
 
-**Tag values for variable-size datasets.** Static datasets have fixed `n_variables` and `n_samples` in their class tags. Simulated datasets don't—these depend on the kwargs. The class tags keep `None` for these fields; `load_dataset()` computes the actual values from the returned DataFrame shape and writes them to the *returned* `Dataset.tags` dict (not the class). This avoids mutating class-level state while still giving the user accurate metadata on the `Dataset` object. Same approach as Tubingen (`_base.py:266-267`).
+**Tag values for variable-size datasets.** Static datasets have fixed `n_variables` and `n_samples` in their class tags. Simulated datasets don't—these depend on the kwargs. Each simulator class is responsible for setting these in its own `_tags` or updating them within its `load_dataframe()`/`load_ground_truth()` methods. `load_dataset()` does not modify tags.
 
 **`sim_params` tag vs. `inspect.signature()`.** The `sim_params` tag requires manual maintenance — if someone changes `load_dataframe()` or `load_ground_truth()`, they need to update the tag too. `inspect.signature()` would auto-extract parameter names and defaults at zero maintenance cost, but can't provide descriptions. Feedback welcome on which approach (or a hybrid) is preferred.
 
@@ -240,8 +222,8 @@ This wraps pgmpy's existing `LGBN.get_random()` + `.simulate()` in the mixin pat
 (2000, 8)
 >>> type(ds.ground_truth)
 <class 'pgmpy.base.DAG.DAG'>
->>> ds.tags["sim_params_used"]
-{'n_samples': 2000, 'seed': 42, 'n_nodes': 8, 'edge_prob': 0.3}
+>>> ds.ground_truth.edges()
+OutEdgeView([('X_2', 'X_0'), ('X_3', 'X_0'), ...])
 ```
 
 The implementation for this class:
@@ -265,7 +247,7 @@ class LinearGaussianSCM(_SimulationMixin, _BaseDataset):
                                scale=noise_scale, seed=seed)
 
     @classmethod
-    def load_ground_truth(cls, n_samples=None, seed=None, n_nodes=5, edge_prob=0.3, **kwargs):
+    def load_ground_truth(cls, seed=None, n_nodes=5, edge_prob=0.3, **kwargs):
         model = cls._build_model(seed=seed, n_nodes=n_nodes, edge_prob=edge_prob, **kwargs)
         return DAG(model.edges())
 
@@ -277,8 +259,7 @@ class LinearGaussianSCM(_SimulationMixin, _BaseDataset):
         return model.simulate(n_samples=n_samples, seed=seed)
 ```
 
-`_build_model()` is a shared helper on the concrete class (not the mixin). Both methods call it with the same seed
-to get the same model. The `n_samples` and `seed` come from `load_dataset()`'s explicit parameters.
+`_build_model()` is a shared helper on the concrete class (not the mixin). Both methods call it with the same seed to get the same model.
 
 #### 2. Additive Noise Model (non-linear functions, DAG ground truth)
 
@@ -299,7 +280,7 @@ class AdditiveNoiseModel(_SimulationMixin, _BaseDataset):
     _tags = {"name": "anm", "is_simulated": True, "has_ground_truth": True, ...}
 
     @classmethod
-    def load_ground_truth(cls, n_samples=None, seed=None, n_nodes=5, edge_prob=0.3, **kwargs):
+    def load_ground_truth(cls, seed=None, n_nodes=5, edge_prob=0.3, **kwargs):
         return DAG.get_random(n_nodes=n_nodes, edge_prob=edge_prob, seed=seed)
 
     @classmethod
@@ -359,8 +340,8 @@ class IHDP(_SimulationMixin, _BaseDataset):
     covariate_url = "data/ihdp_covariates.csv"
 
     @classmethod
-    def load_ground_truth(cls, n_samples=None, seed=None, **kwargs):
-        # Fixed DAG from Hill 2011 — ignores n_samples/seed for signature compatibility
+    def load_ground_truth(cls, **kwargs):
+        # Fixed DAG from Hill 2011
         covariate_names = [f"x{i}" for i in range(1, 26)]
         edges = [(x, "treatment") for x in covariate_names]
         edges += [(x, "y_obs") for x in covariate_names]
@@ -380,7 +361,7 @@ class IHDP(_SimulationMixin, _BaseDataset):
         return data
 ```
 
-Key difference from the other simulators: `load_ground_truth()` returns a fixed DAG (no seed or kwargs needed), and `load_dataframe()` loads real covariates from the Hub before simulating treatment/outcome on top of them. Each method is fully independent—no shared helpers needed.
+Key difference from the other simulators: `load_ground_truth()` returns a fixed DAG (no kwargs needed), and `load_dataframe()` loads real covariates from the Hub before simulating treatment/outcome on top of them. Each method is fully independent—no shared helpers needed.
 
 #### General user journeys
 
@@ -435,7 +416,7 @@ class MyCustomSimulator(_SimulationMixin, _BaseDataset):
     }
 
     @classmethod
-    def load_ground_truth(cls, n_samples=None, seed=None, **kwargs):
+    def load_ground_truth(cls, **kwargs):
         # construct and return the causal graph
         ...
         return dag
