@@ -4,11 +4,9 @@
 
 ### Introduction
  
-pgmpy already supports several graphical causal identification strategies, such as
-the backdoor criterion, frontdoor criterion, and instrumental variables. These existing methods are **role-based**: they inspect the causal graph and assign roles to nodes (e.g., identifying a valid adjustment set or instrument). All three methods follow a unified `_BaseIdentification` interface they accept a `causal_graph` with `exposures` and `outcomes` roles assigned, and return a **modified graph** with additional role assignments (e.g., `adjustment`, `frontdoor`, `iv`).
+pgmpy already supports several graphical causal identification strategies, such as the backdoor criterion, frontdoor criterion, and instrumental variables. These existing methods are **role-based**: they inspect the causal graph and assign roles to nodes (e.g., identifying a valid adjustment set or instrument). All three methods inherit from the `_BaseIdentification` class, they accept a `causal_graph` with `exposures` and `outcomes` roles assigned, and return a **modified graph** with additional role assignments (e.g., `adjustment`, `frontdoor`, `iv`).
  
-While this role-based design is clean and composable, it has a fundamental limitation: **it is incomplete**. Role-based methods can only identify causal effects for which a specific graphical criterion is satisfied. There exist valid causal models where none of these criteria apply, yet the interventional distribution `P(y | do(x))`
-is still theoretically identifiable from purely observational data.
+While this role-based design is clean and composable, it has a fundamental limitation: **it is incomplete**. Role-based methods can only identify causal effects for which a specific graphical criterion is satisfied. There exist valid causal models where none of these criteria apply, yet the interventional distribution `P(y | do(x))` is still theoretically identifiable from purely observational data.
  
 The canonical example is the **bow-arc** graph from Shpitser & Pearl (2006):
  
@@ -18,32 +16,21 @@ X ↔ Z       (bidirected arc — latent confounder U affects both X and Z)
 ```
  
 In this ADMG:
-- **No valid backdoor adjustment set exists** - the latent confounder between X and Z
-  is unobserved, so it cannot be conditioned on.
-- **Frontdoor criterion does not apply** - there is a bidirected arc from X to Z,
-  meaning Z itself is confounded with X.
-- **No standard instrumental variable** - there is no variable that affects X without
-also being affected by the confounder.
+- **No valid backdoor adjustment set exists** - the latent confounder between X and Z is unobserved, so it cannot be conditioned on.
+- **Frontdoor criterion does not apply** - there is a bidirected arc from X to Z, meaning Z itself is confounded with X.
+- **No standard instrumental variable** - there is no variable that affects X without also being affected by the confounder. 
 Yet `P(Y | do(X))` is identifiable, and the ID algorithm derives the correct formula automatically:
  
 ```
 P(Y | do(X)) = Σ_Z [ P(Z | X) · Σ_{X'} [ P(Y | Z, X') · P(X') ] ]
 ```
-This project proposes extending pgmpy's identification capabilities with
-**formula-returning** identification methods. Unlike role-based approaches, these
-algorithms output a closed-form symbolic expression over observed distributions for
-the target causal effect, or raise an exception when identification is not possible.
-The ID algorithm (Shpitser & Pearl, 2006) is **complete** for semi-Markovian
-models - it strictly subsumes what backdoor, frontdoor, and IV criteria can achieve individually.
+This project proposes extending pgmpy's identification capabilities with **formula-returning** identification methods. Unlike role-based approaches, these algorithms output a closed-form symbolic expression over observed distributions for the target causal effect, or raise an exception when identification is not possible. The ID algorithm (Shpitser & Pearl, 2006) is **complete** for semi-Markovian models - it strictly subsumes what backdoor, frontdoor, and IV criteria can achieve individually.
 
 ### Proposed Solution
 
 The project has two main components.
 
-**Component 1: `ProbabilityExpression`** - a new base class and symbolic expression
-hierarchy, placed in `pgmpy/identification/`, that represents the closed-form
-formulas output by identification algorithms. It supports pretty-printing (LaTeX),
-simplification, and numeric evaluation against observed data.
+**Component 1: `ProbabilityExpression`** - a new base class and symbolic expression hierarchy, placed in `pgmpy/identification/`, that represents the closed-form formulas output by identification algorithms. It supports pretty-printing (LaTeX), simplification, and numeric evaluation against observed data.
  
 **Component 2: Four identification algorithms** - `ID`, `IDC`, `IDStar`, and `SigmaID` - each inheriting from `ProbabilityExpression`. They accept a causal graph as input and return a `ProbabilityExpression` tree representing the identified formula, or raise an exception when identification fails.
  
@@ -76,42 +63,35 @@ result.evaluate(data=df)           # numeric estimate from observed data
 |---|---|---|---|
 | `ID` | `P(y \| do(x))` | `exposures`, `outcomes` | `HedgeException` |
 | `IDC` | `P(y \| do(x), z)` | `exposures`, `outcomes`, `conditioning` | `HedgeException` |
-| `IDStar` | `P(y_x)` counterfactual | `exposures`, `outcomes` + query | `HedgingException` |
-| `SigmaID` | `P(y \| do(x))` multi-source | `exposures`, `outcomes` + sigma graphs | `SigmaHedgeException` |
+| `IDStar` | `P(y_x)` counterfactual | `exposures`, `outcomes` + query | `HedgeException` |
+| `SigmaID` | `P(y \| do(x))` multi-source | `exposures`, `outcomes` + sigma graphs | `HedgeException` |
  
 
 ### Alternative Solutions
 
+[**`y0`** (Hoyt et al., 2021)](https://github.com/y0-causal-inference/y0) is a Python library that implements ID, IDC, ID*, and IDC* algorithms. It has a domain-specific language (DSL) for probability expressions where `P(Y @ X)` represents `P(Y | do(X))` and `Sum[A](P(A, B))` represents marginalisation. The ID algorithm runs on an `NxMixedGraph` built on top of networkx and returns an expression in this DSL. We can reference `y0`'s DSL design for how to build the `ProbabilityExpression` class hierarchy, and their ID* and IDC* implementations as a guide for the twin network construction in `IDStar`. One important note from their release history: implementing ID* and IDC* correctly took nearly two years and required fixing several bugs in the original algorithm, so their implementation is a valuable reference for edge cases.
 
+[**R `causaleffect`** (Tikka & Karvanen, 2017)](https://github.com/santikka/causaleffect) is the canonical reference implementation of ID and IDC. It uses C-component decomposition as the core data structure, detects the hedge condition by checking whether the single remaining C-component equals the full node set V, and checks the d-separation condition for IDC via graph traversal. We can use it as a reference for testing: for any graph where `causaleffect` produces a formula, our `ID` should return an equivalent expression, and for any graph where it raises an error, our implementation should raise `HedgeException`.
 
 ### Details of proposed solution
 
 #### `ProbabilityExpression` - Base Class and Expression Hierarchy
  
-The ID-family algorithms output mathematical formulas, not graph annotations. We
-need a class hierarchy to represent these formulas as Python objects. Each formula
-is a tree built from four node types:
+The ID-family algorithms output mathematical formulas, not graph annotations. We need a class hierarchy to represent these formulas as Python objects. Each formula is a tree built from four node types:
  
-- **`Prob(variables, do, cond)`** - an atomic probability term, e.g. `P(Y | do(X))`
-  or `P(Z | X)`. At the symbolic level, `do` and `cond` are sets of variable names,
+- **`Prob(variables, do, cond)`** - an atomic probability term, e.g. `P(Y | do(X))` or `P(Z | X)`. At the symbolic level, `do` and `cond` are sets of variable names,
   not value assignments (those come only at `evaluate()` time).
-- **`Marginal(expr, summed_vars)`** - represents `Σ_{S} expr`, summing out a set of
-  variables.
+- **`Marginal(expr, summed_vars)`** - represents `Σ_{S} expr`, summing out a set of variables.
 - **`Product(factors)`** - represents `expr_1 · expr_2 · ...`
-- **`Quotient(numerator, denominator)`** - represents `numerator / denominator`,
-  used by IDC.
+- **`Quotient(numerator, denominator)`** - represents `numerator / denominator`, used by IDC.
 
-`ProbabilityExpression` is the abstract base for all of these, and also for the
-identification algorithm classes. It defines:
+`ProbabilityExpression` is the abstract base for all of these, and also for the identification algorithm classes. It defines:
  
-- `identify(causal_graph)` - validates the graph and calls `_identify()`. Only
-  algorithm subclasses implement `_identify()`.
-- `to_latex()` and `__repr__()` - abstract; every expression node must implement
-  these.
+- `identify(causal_graph)` - validates the graph and calls `_identify()`. Only algorithm subclasses implement `_identify()`.
+- `to_latex()` and `__repr__()` - abstract; every expression node must implement these.
 - `simplify()` - optional simplification (default: identity).
 - `evaluate(data)` - numeric evaluation against a `pd.DataFrame`.
-The hierarchy is deliberately modelled on how SymPy organises expression trees:
-every node - leaf or composite - shares the same base class.
+The hierarchy is deliberately modelled on how SymPy organises expression trees: every node - leaf or composite - shares the same base class.
  
 ```python
 # pgmpy/identification/probability_expressions.py
@@ -180,8 +160,7 @@ class HedgeException(Exception):
         self.hedge = hedge
 ```
  
-The frontdoor formula, as a `ProbabilityExpression` tree, illustrates how the
-pieces compose:
+The frontdoor formula, as a `ProbabilityExpression` tree, illustrates how the pieces compose:
  
 ```python
 # P(Y | do(X)) = Σ_M [ P(M|X) · Σ_{X'} [ P(Y|M,X') · P(X') ] ]
@@ -383,9 +362,7 @@ pgmpy/
 
 #### Journey 1: Researcher - Automatic identification in a confounded model
 
-A researcher has a model where a latent variable confounds both the treatment X
-and the mediator Z, so no backdoor adjustment exists. Instead of manually
-deriving the identification formula, they let the ID algorithm do it.
+A researcher has a model where a latent variable confounds both the treatment X and the mediator Z, so no backdoor adjustment exists. Instead of manually deriving the identification formula, they let the ID algorithm do it.
 
 ```python
 from pgmpy.base import ADMG
@@ -404,9 +381,7 @@ print(result.to_latex())
 
 #### Journey 2: Data Scientist - Checking identifiability before estimation
 
-Before spending time on estimation, a data scientist wants to know upfront
-whether the causal effect can be identified from observational data at all.
-If not, the algorithm tells them exactly which subgraph makes it impossible.
+Before spending time on estimation, a data scientist wants to know upfront whether the causal effect can be identified from observational data at all. If not, the algorithm tells them exactly which subgraph makes it impossible.
 
 ```python
 from pgmpy.identification import ID, HedgeException
@@ -420,10 +395,7 @@ except HedgeException as e:
 
 #### Journey 3: Epidemiologist - Conditional interventional distribution
 
-An epidemiologist wants to estimate the effect of a treatment X on outcome Y,
-but needs to condition on an observed baseline variable Z, for example a
-pre-treatment health score. IDC handles this directly without needing to
-manually apply Bayes' rule on top of the ID result.
+An epidemiologist wants to estimate the effect of a treatment X on outcome Y, but needs to condition on an observed baseline variable Z, for example a pre-treatment health score. IDC handles this directly without needing to manually apply Bayes' rule on top of the ID result.
 
 ```python
 from pgmpy.base import ADMG
@@ -440,11 +412,9 @@ print(result.to_latex())
 
 ### References
  
-1. Shpitser, I. and Pearl, J. (2006). *Identification of Joint Interventional
-   Distributions in Recursive Semi-Markovian Causal Models.* AAAI-06.
-2. Shpitser, I. and Pearl, J. (2006). *Identification of Conditional Interventional
-   Distributions.* UAI-06.
-3. Shpitser, I. and Pearl, J. (2008). *Complete Identification Methods for the
-   Causal Hierarchy.* JMLR, 9, 1941–1979.
-4. Bareinboim, E. and Pearl, J. (2012). *Causal Inference by Surrogate Experiments:
-   z-Identifiability.* UAI-12.
+1. Shpitser, I. and Pearl, J. (2006). *Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models.* AAAI-06.
+2. Shpitser, I. and Pearl, J. (2006). *Identification of Conditional Interventional Distributions.* UAI-06.
+3. Shpitser, I. and Pearl, J. (2008). *Complete Identification Methods for the Causal Hierarchy.* JMLR, 9, 1941–1979.
+4. Bareinboim, E. and Pearl, J. (2012). *Causal Inference by Surrogate Experiments: z-Identifiability.* UAI-12.
+5. Hoyt, C.T., et al. (2025). *Causal identification with Y0.* arXiv:2508.03167.  
+6. Tikka, S. and Karvanen, J. (2017). *Identifying Causal Effects with the R Package causaleffect.* JSS, 76(12).
