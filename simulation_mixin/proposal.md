@@ -61,7 +61,7 @@ We could introduce a new base class that inherits from `_BaseDataset` and adds s
 
 #### 1. The `_SimulationMixin` class
 
-The mixin follows the same structural pattern as `_CovarianceMixin` (`_base.py:172-213`): it overrides `load_dataframe` and `load_ground_truth` so that `load_dataset` can call them without knowing whether the underlying data source is static or simulated. This keeps the contract uniform across all mixin classes avoiding any if-else branching in `load_dataset`.
+The mixin follows the same structural pattern as `_CovarianceMixin` (`_base.py:172-213`): it defines the `load_dataframe` and `load_ground_truth` contract for simulated datasets while keeping dataset-specific logic inside the dataset classes.
 
 The mixin itself only declares the contract. How each concrete simulator structures its internals—whether it uses shared helpers, separate methods, or inline logic—is up to the class. This matches how `_CovarianceMixin` and `_TubingenBenchmarkMixin` work: they put logic directly in their overridden methods without enforcing a particular internal decomposition.
 
@@ -109,7 +109,7 @@ class _SimulationMixin:
 
 **Why this design:**
 
-- **`load_dataframe` and `load_ground_truth` are overridden on the mixin.** This is the same contract as `_CovarianceMixin` and `_TubingenBenchmarkMixin`. `load_dataset()` doesn't need to know whether it's dealing with a static dataset, a covariance-generated dataset, or a simulation—it just calls `load_dataframe` and `load_ground_truth` on whatever class it resolves. No if-else branching.
+- **`load_dataframe` and `load_ground_truth` are overridden on the mixin.** This is the same contract as `_CovarianceMixin` and `_TubingenBenchmarkMixin`. `load_dataframe()` dispatch is fully polymorphic. For `load_ground_truth()`, `load_dataset` uses a small `issubclass` check to forward `seed` and simulator kwargs only to `_SimulationMixin` datasets, since static ground truths take no parameters.
 
 - **No enforced internal structure.** The mixin doesn't prescribe how simulators decompose their logic. Some simulators might share a `_build_model` helper between `load_dataframe` and `load_ground_truth`. Others (like IHDP) have completely independent logic in each method. This is left to the simulator author.
 
@@ -121,7 +121,7 @@ class _SimulationMixin:
 
 #### 2. Changes to `load_dataset`
 
-The key point: `load_dataset` stays polymorphic. Because `_SimulationMixin` overrides `load_dataframe` and `load_ground_truth`, the existing dispatch in `load_dataset` works without any new simulation-specific branching.
+The key point: dataset-specific logic still lives in the dataset classes. `load_dataset` only needs a small branch for ground-truth loading because static ground truths take no simulation parameters, while simulated ground truths may depend on `seed` and simulator kwargs.
 
 The only change is adding `n_samples`, `seed`, and `**sim_kwargs` to the signature and forwarding them:
 
@@ -135,7 +135,11 @@ def load_dataset(
     target_cls = _resolve_dataset_class(name)  # existing lookup logic
 
     df = target_cls.load_dataframe(n_samples=n_samples, seed=seed, **sim_kwargs)
-    gt = target_cls.load_ground_truth(seed=seed, **sim_kwargs)
+
+    if issubclass(target_cls, _SimulationMixin):
+        gt = target_cls.load_ground_truth(seed=seed, **sim_kwargs)
+    else:
+        gt = target_cls.load_ground_truth()
 
     return Dataset(
         name=name,
@@ -161,7 +165,7 @@ def load_dataframe(cls, n_samples=None, seed=None) -> pd.DataFrame:
     return df
 ```
 
-`_BaseDataset.load_ground_truth()` adds `**kwargs` to absorb forwarded arguments it doesn't use (like `seed`), so `load_dataset()` can call it uniformly without branching.
+Static datasets keep the existing `load_ground_truth()` signature because their ground-truth graph is fixed and does not depend on `n_samples`, `seed`, or simulator kwargs. For `_SimulationMixin` datasets, `load_ground_truth()` can accept `seed` and simulator kwargs when the generated graph depends on them.
 
 `_CovarianceMixin.load_dataframe()` also needs to accept `n_samples` and `seed` for compatibility, since covariance datasets are already marked `is_simulated=True` and `load_dataset()` will forward these parameters.
 
