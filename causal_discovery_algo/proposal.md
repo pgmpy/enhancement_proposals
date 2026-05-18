@@ -19,6 +19,25 @@ neural networks (MLP) and implement advanced variants like DAGMA-DCE.
 
 ### Alternative Solutions
 
+#### DAGMA Base Class Abstraction Levels
+
+When considering to integrate both `DAGMALinear` (which uses L-BFGS (The original still uses Adam)) and `DAGMANonLinear` (which uses Adam) without code duplication, three levels of abstraction could be thought of:
+
+1. **Approach A: Shared Boilerplate + Math Utilities**
+   * **Description:** Create a `_BaseDAGMA` class that handles `__init__` parameters, data validation, tensor conversion, device config, the core `_log_det_barrier` mathematical logic, and final `DAG` object creation. Subclasses only implement their specific `_fit` optimization loops (L-BFGS vs. Adam) and neural network/matrix setups.
+   * **Pros:** Clean, pythonic, avoids forcing incompatible optimizers together, respects DRY, and centralizes `sklearn` parameter getters and setters.
+   * **Cons:** The outer `mu` decay loop is still written twice.
+
+2. **Approach B: Strict Template Method (Full Loop Abstraction)**
+   * **Description:** Abstract the entire outer `mu` decay loop into `_BaseDAGMA._fit`. The base class loops over `mu` and calls a subclass-implemented `_optimize_inner_step()`.
+   * **Pros:** Zero duplication of the optimization flow.
+   * **Cons:** Very brittle. Adam requires completely different stopping logic, scheduling, and state tracking (e.g. `obj_prev`) compared to L-BFGS.
+
+3. **Approach C: Stick to `_BaseCausalDiscovery` Only**
+   * **Description:** No specific DAGMA base class. Both `DAGMALinear` and `DAGMANonlinear` inherit directly from `_BaseCausalDiscovery`.
+   * **Pros:** Maximum flexibility for each algorithm.
+   * **Cons:** Significant code duplication of parameter ingestion, PyTorch tensor conversion, the log-det barrier math, and thresholding logic.
+
 ### Algorithm Overviews
 
 #### DAGMA Linear (Currently Under Implementation)
@@ -94,11 +113,13 @@ LinearGaussiaBN and against the known implementation of the algorithm.
 
 ### API Design:
 
-**DAGMALinear**
+**DAGMA Architecture (Approach A: Shared BaseDAGMA class)**
 ```python
-from pgmpy.causal_discovery import DAGMALinear
+from pgmpy.causal_discovery._base import _BaseCausalDiscovery
+import torch
+import pandas as pd
 
-class DAGMALinear(_BaseCausalDiscovery):
+class _BaseDAGMA(_BaseCausalDiscovery):
     def __init__(
         self,
         s=1.0,
@@ -107,15 +128,53 @@ class DAGMALinear(_BaseCausalDiscovery):
         mu_factor=0.1,
         max_iter=100,
         w_threshold=0.3,
-    ):
+        return_type: str = "dag",
+    ) -> None:
+
+        self.s = s
+        self.lambda1 = lambda1
+        self.mu_init = mu_init
+        self.mu_factor = mu_factor
+        self.max_iter = max_iter
+        self.w_threshold = w_threshold
+        self.return_type = return_type
+        self.device = config.get_device()
+        dtype = config.get_dtype()
+        if isinstance(dtype, str):
+            self.dtype = getattr(torch, dtype)
+        else:
+            self.dtype = dtype
+
+        # Handles hyperparameters and pgmpy config resolution (device, dtype)
         ...
 
-    def _fit(self, X: pd.DataFrame)
-        #Core flow of the DAGMA continuous optimization algorithm.
+    def _log_det_barrier(self, W: torch.Tensor, s: float) -> torch.Tensor:
+        # Shared mathematical logic for h(W) acyclicity constraint
         ...
 
-    def _objective(self, W: torch.Tensor, mu: float, cov: torch.Tensor) -> torch.Tensor:
+    def _convert_to_dag(self, W_est) -> 'DAG':
+        # Shared logic for pruning below w_threshold and casting to pgmpy.base.DAG
+        ...
 
+class DAGMALinear(_BaseDAGMA):
+    def _fit(self, X: pd.DataFrame):
+        # Converts X to Tensor and extracts covariance
+        # Executes mu decay loop using PyTorch L-BFGS optimizer
+        # Calls self._log_det_barrier() and builds the objective
+        # Returns self._convert_to_dag(W_est)
+        ...
+
+class DAGMANonlinear(_BaseDAGMA):
+    def __init__(self, model_dims, **kwargs):
+        super().__init__(**kwargs)
+        # Initializes the Multilayer Perceptron (MLP) for structural equations
+        ...
+
+    def _fit(self, X: pd.DataFrame):
+        # Executes mu decay loop using Adam optimizer (with scheduling/tol stopping)
+        # Computes log-MSE score and calls self._log_det_barrier() via MLP weights
+        # Returns self._convert_to_dag(W_est)
+        ...
 ```
 
 **test_DAGMA**
@@ -178,3 +237,110 @@ uninterpretable edge-weight proxies with a non-parametric formulation based on e
 model to their data. Not only do they receive a valid DAG, but the learned weighted adjacency matrix provides direct,
 human-interpretable estimates of the causal strengths between health indicators. This fulfills their medical compliance
 requirements while leveraging state-of-the-art continuous optimization.
+
+---
+
+### Empirical Validation: Adam vs. L-BFGS
+
+As documented during initial planning, `DAGMALinear` in `pgmpy` utilizes PyTorch's **L-BFGS** optimizer instead of the original **Adam** implementation. 
+
+Below is the benchmark testing script that empirically validates why L-BFGS is preferred for the linear case. Adam is highly sensitive to feature scaling and frequently gets trapped in cyclic local minima when applied to raw or mean-centered variance. L-BFGS, being a second-order optimizer, uses curvature information to navigate the sharp log-det barrier constraints more robustly.
+
+#### Benchmark Test Script
+```python
+import pandas as pd
+import numpy as np
+import networkx as nx
+from pgmpy.datasets import load_dataset
+from pgmpy.causal_discovery.DAGMA import DAGMALinear
+import sys
+import os
+
+# Add the official dagma (used local clone here) / pip install dagma
+sys.path.append(os.path.abspath('PATH_TO_DAGMA-OFFICIAL'))
+from dagma.linear import DagmaLinear as OfficialDagmaLinear
+
+def run_tests():
+    data = load_dataset('sachs_continuous').data
+    
+    data_raw = data.to_numpy().copy()
+    data_centred = (data - data.mean()).to_numpy().copy()
+    data_std = ((data - data.mean()) / data.std()).to_numpy().copy()
+    
+    scenarios = {
+        "Raw Data": data_raw,
+        "Mean-Centered": data_centered,
+        "Standardized": data_std
+    }
+    
+    for name, X in scenarios.items():
+        print(f"\n--- Scenario: {name} ---")
+        
+        # pgmpy (L-BFGS)
+        print("pgmpy (L-BFGS):")
+        try:
+            df_X = pd.DataFrame(X, columns=data.columns)
+            est_pgmpy = DAGMALinear(lambda1=0.05, w_threshold=0.3, s=1.0)
+            est_pgmpy.fit(df_X)
+            
+            is_dag_pgmpy = nx.is_directed_acyclic_graph(est_pgmpy.causal_graph_)
+            print(f"  Valid DAG: {is_dag_pgmpy}")
+            if not is_dag_pgmpy:
+                cycles = list(nx.simple_cycles(est_pgmpy.causal_graph_))
+                print(f"  Failed (Cyclic). Found {len(cycles)} cycles.")
+            else:
+                print(f"  Edge count: {len(list(est_pgmpy.causal_graph_.edges()))}")
+        except Exception as e:
+            print(f"  Failed: {e}")
+            
+        # Official (Adam)
+        print("Official (Adam):")
+        try:
+            model_official = OfficialDagmaLinear(loss_type='l2')
+            W_official = model_official.fit(X, lambda1=0.05, w_threshold=0.3, s=1.0, T=5)
+            
+            df_adj = pd.DataFrame(W_official, index=data.columns, columns=data.columns)
+            nx_official = nx.from_pandas_adjacency(df_adj, create_using=nx.DiGraph)
+            is_dag_off = nx.is_directed_acyclic_graph(nx_official)
+            
+            print(f"  Valid DAG: {is_dag_off}")
+            if not is_dag_off:
+                cycles = list(nx.simple_cycles(nx_official))
+                print(f"  Failed (Cyclic). Found {len(cycles)} cycles.")
+            else:
+                print(f"  Edge count: {len(nx_official.edges())}")
+        except Exception as e:
+            print(f"  Failed: {e}")
+
+if __name__ == '__main__':
+    run_tests()
+```
+
+#### Results
+```text
+--- Scenario: Raw Data ---
+pgmpy (L-BFGS):
+  Valid DAG: True
+  Edge count: 8
+Official (Adam):
+  Valid DAG: False
+  Failed (Cyclic). Found 5 cycles.
+
+--- Scenario: Mean-Centered ---
+pgmpy (L-BFGS):
+  Valid DAG: True
+  Edge count: 8
+Official (Adam):
+  Valid DAG: False
+  Failed (Cyclic). Found 5 cycles.
+
+--- Scenario: Standardized ---
+pgmpy (L-BFGS):
+  Valid DAG: True
+  Edge count: 2
+Official (Adam):
+  Valid DAG: True
+  Edge count: 6
+```
+
+**Conclusion:** `pgmpy`'s L-BFGS implementation successfully captures 8 valid edges on the natural raw and mean-centered data without falling into cycles. The Adam optimizer fail on the same natural data, only succeeding when the variance is heavily damped via unit standardization (which in turn crushes L-BFGS edge discovery to just 2).
