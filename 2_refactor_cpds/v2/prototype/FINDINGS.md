@@ -50,7 +50,7 @@ PYTHONPATH=/path/to/skpro python prototype.py
 | 4 | Mixture & NN CPDs (`MixtureCPD` with EM, sklearn `MLPClassifier`) — earlier iterations had standalone demos | Compressed into Demos A2 (RF) and B3 (WrappedRegressor); the framework-agnostic claim holds. Joint end-to-end NN training is deliberately out of scope (Pyro/NumPyro territory) |
 | 5 | skpro `BaseProbaRegressor` tag inheritance fragile — subclasses must re-declare `X_inner_mtype`, `y_inner_mtype`, `capability:multioutput`, `capability:missing` | Added to per-CPD class authoring checklist. Not pgmpy-specific (MDNRegressor does the same) |
 | 6 | `is_fitted` (skpro, property tied to `_is_fitted`) vs `is_fitted_` (sklearn). `from_values` must set the right convention per CPD class | Documented per CPD class. `TabularCPD.from_values` → `is_fitted_ = True`; `LinearGaussianCPD.from_values` → `_is_fitted = True` |
-| 7 | Schema state-ordering conflict between CPD-declared and data-derived orders | Resolved via explicit precedence policy (CPD-authored states are authoritative; data validates subset membership only). See refactor_design.md "Schema precedence policy" |
+| 7 | Schema state-ordering conflict between CPD-declared and data-derived orders | Resolved via explicit precedence policy (CPD-authored states are authoritative; data validates subset membership only). See `02_parameterized_dag.md` "Schema precedence policy" |
 
 ## What the prototype did NOT validate
 

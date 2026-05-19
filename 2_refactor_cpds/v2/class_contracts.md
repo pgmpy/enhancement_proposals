@@ -1,9 +1,14 @@
 # pgmpy v2.0 Class Contracts
 
-Companion to `refactor_design.md` (rationale + alternatives) and
-`refactor_ai_agent_plan.md` (implementation). Lists **only** the public
-contracts — class declarations, tags, fitted attributes, method
-signatures.
+Companion to `refactor_design.md` (overview) and the split design docs:
+`01_cpd_boundary.md`, `02_parameterized_dag.md`,
+`03_scm_counterfactuals.md`. Lists **only** the public contracts —
+class declarations, tags, fitted attributes, method signatures.
+
+At the time of the split, this file remains a **combined reference across
+all three sub-proposals**. It is intentionally broader than any single
+design doc and should not be read as forcing Designs 1, 2, and 3 to be
+accepted together.
 
 **Core principles** (see design doc for rationale):
 
