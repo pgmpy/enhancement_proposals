@@ -109,7 +109,7 @@ class _SimulationMixin:
 
 **Why this design:**
 
-- **`load_dataframe` and `load_ground_truth` are overridden on the mixin.** This is the same contract as `_CovarianceMixin` and `_TubingenBenchmarkMixin`. `load_dataframe()` dispatch is fully polymorphic. For `load_ground_truth()`, `load_dataset` uses a small `issubclass` check to forward `seed` and simulator kwargs only to `_SimulationMixin` datasets, since static ground truths take no parameters.
+- **`load_dataframe` and `load_ground_truth` are overridden on the mixin.** This is the same contract as `_CovarianceMixin` and `_TubingenBenchmarkMixin`. `load_dataset()` calls both methods uniformly on whatever class it resolves, so no new simulation-specific branching is needed. `_BaseDataset.load_ground_truth()` accepts `**kwargs` to absorb forwarded arguments it doesn't use.
 
 - **No enforced internal structure.** The mixin doesn't prescribe how simulators decompose their logic. Some simulators might share a `_build_model` helper between `load_dataframe` and `load_ground_truth`. Others (like IHDP) have completely independent logic in each method. This is left to the simulator author.
 
@@ -121,7 +121,7 @@ class _SimulationMixin:
 
 #### 2. Changes to `load_dataset`
 
-The key point: dataset-specific logic still lives in the dataset classes. `load_dataset` only needs a small branch for ground-truth loading because static ground truths take no simulation parameters, while simulated ground truths may depend on `seed` and simulator kwargs.
+The key point: `load_dataset` stays polymorphic. Both `load_dataframe` and `load_ground_truth` are called uniformly; `_BaseDataset.load_ground_truth()` accepts `**kwargs` to absorb forwarded arguments it doesn't use, so no new simulation-specific branching is needed.
 
 The only change is adding `n_samples`, `seed`, and `**sim_kwargs` to the signature and forwarding them:
 
@@ -135,11 +135,7 @@ def load_dataset(
     target_cls = _resolve_dataset_class(name)  # existing lookup logic
 
     df = target_cls.load_dataframe(n_samples=n_samples, seed=seed, **sim_kwargs)
-
-    if issubclass(target_cls, _SimulationMixin):
-        gt = target_cls.load_ground_truth(seed=seed, **sim_kwargs)
-    else:
-        gt = target_cls.load_ground_truth()
+    gt = target_cls.load_ground_truth(seed=seed, **sim_kwargs)
 
     return Dataset(
         name=name,
@@ -165,7 +161,7 @@ def load_dataframe(cls, n_samples=None, seed=None) -> pd.DataFrame:
     return df
 ```
 
-Static datasets keep the existing `load_ground_truth()` signature because their ground-truth graph is fixed and does not depend on `n_samples`, `seed`, or simulator kwargs. For `_SimulationMixin` datasets, `load_ground_truth()` can accept `seed` and simulator kwargs when the generated graph depends on them.
+`_BaseDataset.load_ground_truth()` adds `**kwargs` to absorb forwarded arguments (`seed`, `**sim_kwargs`) that it doesn't use. This keeps the call in `load_dataset` uniform across dataset types. Simulators with randomly generated graphs, such as LGSCM and ANM, can use `seed` to ensure the ground truth matches the data; fixed-graph datasets, such as IHDP, simply ignore it.
 
 `_CovarianceMixin.load_dataframe()` also needs to accept `n_samples` and `seed` for compatibility, since covariance datasets are already marked `is_simulated=True` and `load_dataset()` will forward these parameters.
 
