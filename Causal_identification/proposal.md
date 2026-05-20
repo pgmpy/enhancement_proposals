@@ -40,16 +40,16 @@ The two hierarchies are parallel and independent:
 # Existing — unchanged
 _BaseIdentification              (base.py)
     identify() → (modified_graph, bool)
-    ├── Adjustment
-    └── Frontdoor
+    ├── adjustment
+    └── frontdoor
  
 # New — formula-returning
 _BaseFormulaIdentification       (base.py)
     identify() → ProbabilityExpression
-    ├── ID        ← P(y | do(x))
-    ├── IDC       ← P(y | do(x), z)
-    ├── IDStar    ← P(y_x) counterfactual queries
-    └── SigmaID   ← P(y | do(x)) from multiple data sources
+    ├── iD        ← P(y | do(x))
+    ├── iDC       ← P(y | do(x), z)
+    ├── iDStar    ← P(y_x) counterfactual queries
+    └── sigmaID   ← P(y | do(x)) from multiple data sources
  
 # Formula data containers — separate from the algorithms
 ProbabilityExpression            (probability_expressions.py)
