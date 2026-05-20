@@ -30,25 +30,33 @@ This project proposes extending pgmpy's identification capabilities with **formu
 
 The project has two main components.
 
-**Component 1: `ProbabilityExpression`** - a new base class and symbolic expression hierarchy, placed in `pgmpy/identification/`, that represents the closed-form formulas output by identification algorithms. It supports pretty-printing (LaTeX), simplification, and numeric evaluation against observed data.
+**Component 1: `ProbabilityExpression`** - a symbolic expression hierarchy placed in `pgmpy/identification/probability_expressions.py`, representing the closed-form formulas output by identification algorithms. It supports pretty-printing (LaTeX) and numeric evaluation against observed data. This class and its subclasses are pure data containers - they hold and render formula trees.
  
-**Component 2: Four identification algorithms** - `ID`, `IDC`, `IDStar`, and `SigmaID` - each inheriting from `ProbabilityExpression`. They accept a causal graph as input and return a `ProbabilityExpression` tree representing the identified formula, or raise an exception when identification fails.
- 
-These algorithms do **not** inherit from `_BaseIdentification`. That base class is designed for role-based methods whose `identify()` returns a modified graph with role assignments. The ID-family algorithms return symbolic formulas a fundamentally different contract. A new, parallel hierarchy rooted at `ProbabilityExpression` is the correct design.
- 
+**Component 2: A new base class `_BaseFormulaIdentification`** added to `pgmpy/identification/base.py`, alongside the existing `_BaseIdentification`. This new base class defines the formula-returning identification methods: `identify()` takes a causal graph and returns a `ProbabilityExpression`, or raises `HedgeException` when identification fails. The four algorithms `ID`, `IDC`, `IDStar`, and `SigmaID` inherit from this base.
+
+The two hierarchies are parallel and independent:
+
 ```
 # Existing — unchanged
-_BaseIdentification
+_BaseIdentification              (base.py)
+    identify() → (modified_graph, bool)
     ├── Adjustment
     └── Frontdoor
  
 # New — formula-returning
-ProbabilityExpression               (pgmpy/identification/probability_expressions.py)
-    ├── Prob, Marginal, Product, Quotient   ← expression tree nodes
+_BaseFormulaIdentification       (base.py)
+    identify() → ProbabilityExpression
     ├── ID        ← P(y | do(x))
     ├── IDC       ← P(y | do(x), z)
-    ├── IDStar    ← P(y_x)  counterfactual queries
+    ├── IDStar    ← P(y_x) counterfactual queries
     └── SigmaID   ← P(y | do(x)) from multiple data sources
+ 
+# Formula data containers — separate from the algorithms
+ProbabilityExpression            (probability_expressions.py)
+    ├── Prob
+    ├── Marginal
+    ├── Product
+    └── Quotient
 ```
  
 The four algorithms share a unified call pattern:
@@ -69,95 +77,196 @@ result.evaluate(data=df)           # numeric estimate from observed data
 
 ### Alternative Solutions
 
-[**`y0`** (Hoyt et al., 2021)](https://github.com/y0-causal-inference/y0) is a Python library that implements ID, IDC, ID*, and IDC* algorithms. It has a domain-specific language (DSL) for probability expressions where `P(Y @ X)` represents `P(Y | do(X))` and `Sum[A](P(A, B))` represents marginalisation. The ID algorithm runs on an `NxMixedGraph` built on top of networkx and returns an expression in this DSL. We can reference `y0`'s DSL design for how to build the `ProbabilityExpression` class hierarchy, and their ID* and IDC* implementations as a guide for the twin network construction in `IDStar`. One important note from their release history: implementing ID* and IDC* correctly took nearly two years and required fixing several bugs in the original algorithm, so their implementation is a valuable reference for edge cases.
+[**`y0`** (Hoyt et al., 2025)](https://github.com/y0-causal-inference/y0) is a Python library that implements ID, IDC, ID*, IDC*, and sigma-ID. It represents probability expressions using a domain-specific language: `P(Y @ X)` means `P(Y | do(X))` and `Sum[A](P(A, B))` means marginalisation. Internally, each expression is an `Expression` object with a `get_variables()` method and supports LaTeX rendering. The ID algorithm runs on an `NxMixedGraph` (a networkx-based mixed graph) and returns an `Expression`. We can reference `y0`'s expression DSL for how to design the `ProbabilityExpression` field names, and their ID* and IDC* implementations as a guide for twin network construction in `IDStar`. Importantly, `y0` took nearly two years to implement ID* and IDC* correctly, fixing several bugs in the original algorithm — making it a valuable reference for edge cases.
 
-[**R `causaleffect`** (Tikka & Karvanen, 2017)](https://github.com/santikka/causaleffect) is the canonical reference implementation of ID and IDC. It uses C-component decomposition as the core data structure, detects the hedge condition by checking whether the single remaining C-component equals the full node set V, and checks the d-separation condition for IDC via graph traversal. We can use it as a reference for testing: for any graph where `causaleffect` produces a formula, our `ID` should return an equivalent expression, and for any graph where it raises an error, our implementation should raise `HedgeException`.
+[**R `causaleffect`** (Tikka & Karvanen, 2017)](https://github.com/santikka/causaleffect) is the canonical reference implementation. It represents every probability expression — whether atomic or composite — as a single named list (the `probability` object) with fields: `var` (variables), `cond` (conditioning set), `do` (intervention variables), `sumset` (marginalisation variables), `product` (boolean flag for products), `children` (list of sub-expressions), `fraction` (boolean flag for quotients), `num` and `den` (numerator/denominator). LaTeX rendering is in `get.expression()` which recursively walks this structure. We can take inspiration from causaleffect's field names when designing our `Prob` class, and use causaleffect as reference for testing: for any graph where causaleffect produces a formula, our `ID` should return an equivalent expression.
+
+Rather than a single struct with boolean flags (causaleffect's approach), we prefer separate subclasses (`Marginal`, `Product`, `Quotient`) because they are more idiomatic Python, easier to pattern-match in the recursion, and straightforward to extend.
 
 ### Details of proposed solution
 
-#### `ProbabilityExpression` - Base Class and Expression Hierarchy
+#### `_BaseFormulaIdentification` - New Base Class in `base.py`
  
-The ID-family algorithms output mathematical formulas, not graph annotations. We need a class hierarchy to represent these formulas as Python objects. Each formula is a tree built from four node types:
- 
-- **`Prob(variables, do, cond)`** - an atomic probability term, e.g. `P(Y | do(X))` or `P(Z | X)`. At the symbolic level, `do` and `cond` are sets of variable names,
-  not value assignments (those come only at `evaluate()` time).
-- **`Marginal(expr, summed_vars)`** - represents `Σ_{S} expr`, summing out a set of variables.
-- **`Product(factors)`** - represents `expr_1 · expr_2 · ...`
-- **`Quotient(numerator, denominator)`** - represents `numerator / denominator`, used by IDC.
+A new base class is added to `pgmpy/identification/base.py`, directly below `_BaseIdentification` for all formula-returning identification methods:
 
-`ProbabilityExpression` is the abstract base for all of these, and also for the identification algorithm classes. It defines:
+<!-- ```
+# pgmpy/identification/base.py
  
-- `identify(causal_graph)` - validates the graph and calls `_identify()`. Only algorithm subclasses implement `_identify()`.
-- `to_latex()` and `__repr__()` - abstract; every expression node must implement these.
-- `simplify()` - optional simplification (default: identity).
-- `evaluate(data)` - numeric evaluation against a `pd.DataFrame`.
-The hierarchy is deliberately modelled on how SymPy organises expression trees: every node - leaf or composite - shares the same base class.
+class _BaseFormulaIdentification:
+    """
+    Base class for identification methods that return symbolic probability
+    expressions.
  
-```python
-# pgmpy/identification/probability_expressions.py
+    Subclasses implement _identify() to run the identification algorithm
+    and return a ProbabilityExpression, or raise HedgeException when
+    identification is not possible.
+    """
  
-class ProbabilityExpression(ABC):
-    supported_graph_types: tuple = ()
+    # Tuple of graph types this algorithm supports.
+    supported_graph_types = ()
  
-    def identify(self, causal_graph) -> "ProbabilityExpression":
+    def _validate_query(self, causal_graph):
+        if not isinstance(causal_graph, self.supported_graph_types):
+            raise ValueError(
+                f"causal_graph must be an instance of "
+                f"{self.supported_graph_types} for this method."
+            )
+        if not causal_graph.get_role("exposures"):
+            raise ValueError("causal_graph must have 'exposures' role assigned.")
+        if not causal_graph.get_role("outcomes"):
+            raise ValueError("causal_graph must have 'outcomes' role assigned.")
+ 
+    def identify(self, causal_graph):
+        """
+        Run the identification algorithm on a causal graph.
+ 
+        Parameters
+        ----------
+        causal_graph : ADMG or DAG
+            The causal graph with exposures and outcomes roles assigned.
+ 
+        Returns
+        -------
+        ProbabilityExpression
+            Symbolic formula for the identified causal effect.
+ 
+        Raises
+        ------
+        HedgeException
+            If the causal effect is not identifiable.
+        """
         self._validate_query(causal_graph)
         return self._identify(causal_graph)
  
     def _identify(self, causal_graph):
-        raise NotImplementedError   # overridden only by algorithm subclasses
+        raise NotImplementedError
  
-    @abstractmethod
-    def to_latex(self) -> str: ...
+    def validate(self, causal_graph):
+        """
+        Check whether the given causal graph produces an identifiable effect.
+        
+        """
+        try:
+            self.identify(causal_graph)
+            return True
+        except HedgeException:
  
-    @abstractmethod
-    def __repr__(self) -> str: ...
+    def __call__(self, causal_graph):
+        return self.identify(causal_graph)
+``` -->
+
+#### `ProbabilityExpression` - Base Class and Expression Hierarchy
  
-    def simplify(self) -> "ProbabilityExpression":
-        return self  # default: no simplification
+The ID algorithms output mathematical formulas. We need Python objects to hold, render, and evaluate these formulas. `ProbabilityExpression` is the base for all formula nodes.
  
-    def evaluate(self, data: pd.DataFrame) -> np.ndarray:
+Each formula is a tree built from four node types:
+ 
+- **`Prob(variables, do, cond)`** - an atomic probability term such as `P(Y | X)` or `P(Y | do(X))`. `variables` is the set of random variables whose probability is being expressed. `do` is the set of variables being intervened on via the do-operator (forcing them to a value). `cond` is the set of variables being passively conditioned on (observed). Both `do` and `cond` are sets of variable names at the symbolic level — concrete values are only needed at `evaluate()` time.
+- **`Marginal(expr, summed_vars)`** - represents `Σ_{S} expr`, summing out the variables in `summed_vars`.
+- **`Product(factors)`** - represents `expr_1 · expr_2 · ...`
+- **`Quotient(numerator, denominator)`** - represents `numerator / denominator`, used by IDC.
+
+```python
+# pgmpy/identification/probability_expressions.py
+ 
+class ProbabilityExpression:
+    """Base class for all symbolic probability expression nodes."""
+ 
+    def to_latex(self):
+        raise NotImplementedError
+ 
+    def __repr__(self):
+        raise NotImplementedError
+ 
+    def simplify(self):
+        """
+        Return a simplified form of the expression. Default: identity.
+        Concrete simplification rules (e.g. collapsing Marginal with empty
+        summed_vars, cancelling common factors in Quotient) are added as
+        the algorithms are implemented.
+        """
+        return self
+ 
+    def evaluate(self, data):
+        """
+        Numerically evaluate this expression against observed tabular data.
+        Bridges symbolic identification and numeric estimation.
+ 
+        Parameters
+        ----------
+        data : pd.DataFrame
+            Observed data. Column names must match variable names.
+        """
         raise NotImplementedError
  
  
 class Prob(ProbabilityExpression):
-    """Atomic: P(variables | do(do_vars), cond_vars)"""
-    def __init__(self, variables: frozenset,
-                 do: frozenset = frozenset(),
-                 cond: frozenset = frozenset()):
+    """
+    Atomic probability term: P(variables | do(do_vars), cond_vars).
+ 
+    Parameters
+    ----------
+    variables : frozenset
+        Variables whose joint probability is expressed, e.g. frozenset({"Y"}).
+    do : frozenset
+        Variables intervened on via do-operator, e.g. frozenset({"X"}) for
+        P(Y | do(X)). Empty frozenset means no intervention.
+    cond : frozenset
+        Variables passively conditioned on, e.g. frozenset({"Z"}) for
+        P(Y | Z). Empty frozenset means no conditioning.
+    """
+    def __init__(self, variables, do=frozenset(), cond=frozenset()):
         self.variables = variables
         self.do = do
         self.cond = cond
  
-    def to_latex(self) -> str: ...
-    def __repr__(self) -> str: ...
+    def to_latex(self): ...
+    def __repr__(self): ...
  
  
 class Marginal(ProbabilityExpression):
     """Σ_{summed_vars} expr"""
-    def __init__(self, expr: ProbabilityExpression, summed_vars: frozenset): ...
-    def to_latex(self) -> str: ...
-    def __repr__(self) -> str: ...
+    def __init__(self, expr, summed_vars): ...
+    def to_latex(self): ...
+    def __repr__(self): ...
  
  
 class Product(ProbabilityExpression):
     """expr_1 · expr_2 · ..."""
-    def __init__(self, factors: list): ...
-    def to_latex(self) -> str: ...
-    def __repr__(self) -> str: ...
+    def __init__(self, factors): ...
+    def to_latex(self): ...
+    def __repr__(self): ...
  
  
 class Quotient(ProbabilityExpression):
     """numerator / denominator"""
-    def __init__(self, numerator: ProbabilityExpression,
-                 denominator: ProbabilityExpression): ...
-    def to_latex(self) -> str: ...
-    def __repr__(self) -> str: ...
+    def __init__(self, numerator, denominator): ...
+    def to_latex(self): ...
+    def __repr__(self): ...
  
  
 class HedgeException(Exception):
-    """Raised when a causal effect is not identifiable."""
+    """
+    Raised by the ID algorithm when a causal effect is not identifiable.
+ 
+    The `hedge` attribute is an ADMG subgraph — the actual subgraph that
+    witnesses non-identifiability. Users can inspect its nodes and edges
+    to understand why identification failed.
+ 
+    Parameters
+    ----------
+    G : ADMG
+        The graph in which identification failed.
+    hedge : ADMG
+        The C-component subgraph that forms the hedge.
+    """
     def __init__(self, G, hedge):
+        self.G = G
         self.hedge = hedge
+        super().__init__(
+            f"Causal effect is not identifiable. "
+            f"Hedge found over nodes: {list(hedge.nodes())}"
+        )
 ```
  
 The frontdoor formula, as a `ProbabilityExpression` tree, illustrates how the pieces compose:
@@ -194,7 +303,7 @@ The algorithm works recursively on the graph's **C-components** (groups of nodes
 ```python
 # pgmpy/identification/id_algorithm.py
  
-class ID(ProbabilityExpression):
+class ID(_BaseFormulaIdentification):
     """
     Identifies P(y | do(x)) in semi-Markovian causal models.
  
@@ -211,7 +320,7 @@ class ID(ProbabilityExpression):
     >>> print(result.to_latex())
     \sum_{Z} \left[ P(Z \mid X) \cdot \sum_{X} \left[ P(Y \mid Z, X) P(X) \right] \right]
     """
-    supported_graph_types = (ADMG,)
+    supported_graph_types = (ADMG, DAG)
  
     def _identify(self, causal_graph) -> ProbabilityExpression:
         y = frozenset(causal_graph.get_role("outcomes"))
@@ -241,7 +350,7 @@ P(y | do(x), z) = P(y, z | do(x)) / P(z | do(x))
 ```
  
 ```python
-class IDC(ProbabilityExpression):
+class IDC(_BaseFormulaIdentification):
     """
     Identifies P(y | do(x), z). Requires a 'conditioning' role on the graph.
  
@@ -255,7 +364,7 @@ class IDC(ProbabilityExpression):
     >>> result = IDC().identify(admg)
     >>> print(result.to_latex())
     """
-    supported_graph_types = (ADMG,)
+    supported_graph_types = (ADMG, DAG)
  
     def _identify(self, causal_graph) -> ProbabilityExpression:
         y = frozenset(causal_graph.get_role("outcomes"))
@@ -280,7 +389,7 @@ ID* (Shpitser & Pearl, 2008) handles counterfactual queries, basically questions
 The algorithm builds a **parallel worlds graph** (twin network): a combined ADMG that duplicates nodes for each intervention context in the query, and connects the worlds through their shared latent variables (bidirected edges). Identification then runs on this expanded graph.
  
 ```python
-class IDStar(ProbabilityExpression):
+class IDStar(_BaseFormulaIdentification):
     """
     Identifies counterfactual queries P(y_x) via the ID* algorithm.
  
@@ -297,7 +406,7 @@ class IDStar(ProbabilityExpression):
     ... ).identify(admg)
     >>> print(result.to_latex())
     """
-    supported_graph_types = (ADMG,)
+    supported_graph_types = (ADMG, DAG)
  
     def __init__(self, counterfactual_query: list):
         self.counterfactual_query = counterfactual_query
@@ -313,7 +422,7 @@ class IDStar(ProbabilityExpression):
 sigma-ID (Bareinboim & Pearl, 2012) handles the case where you have more than one data source, for example an observational dataset alongside a partial randomised experiment. It generalises the ID algorithm to make use of this extra information, using sigma-calculus annotated graphs to track which variables were randomised in each source.
  
 ```python
-class SigmaID(ProbabilityExpression):
+class SigmaID(_BaseFormulaIdentification):
     """
     Identifies P(y | do(x)) from multiple observational and/or experimental
     distributions using the sigma-ID algorithm.
@@ -331,7 +440,7 @@ class SigmaID(ProbabilityExpression):
     ... ).identify(obs_admg)
     >>> print(result.to_latex())
     """
-    supported_graph_types = (ADMG,)
+    supported_graph_types = (ADMG, DAG)
  
     def __init__(self, sigma_graphs: list):
         self.sigma_graphs = sigma_graphs
