@@ -11,7 +11,7 @@ Pairwise causal discovery methods introduce such assumptions to make direction i
 
 ### Proposed Solution
 
-The proposal adds four estimators: `ANM`, `IGCI`, `BivariateLiNGAM`, and `LLMPairwise`, each inheriting directly from `_BaseCausalDiscovery` with no pairwise-specific base class. Each estimator populates the standard `causal_graph_` and `adjacency_matrix_` fitted attributes used by existing structure-learning estimators, and exposes a pairwise-specific `predicted_direction_` property derived from `causal_graph_`, plus the method-specific diagnostics described below. The two-column input constraint is enforced inline in each `_fit`, since `_BaseCausalDiscovery._check_fit_data` is shared with multivariate algorithms. The continuous-only estimators (`ANM`, `IGCI`, `BivariateLiNGAM`) override `__sklearn_tags__` to mark categorical input unsupported. All four expose pgmpy's standard `show_progress` and `random_state` keywords, matching `PC` and `ExpertInLoop`.
+All four estimators — `ANM`, `IGCI`, `BivariateLiNGAM`, and `LLMPairwise` — subclass `_BaseCausalDiscovery` directly, with no intermediate pairwise base class (the algorithms share little internally, so an extra layer would mostly be ceremony). Once fit, each one stores its result on the same `causal_graph_` and `adjacency_matrix_` attributes pgmpy's other structure learners already use, plus a small `predicted_direction_` reader over `causal_graph_` for the natural bivariate question of which way the arrow points. The two-column check lives inside each `_fit`, since the shared `_check_fit_data` also runs for multivariate algorithms and can't enforce a bivariate shape itself. The three statistical estimators override `__sklearn_tags__` to reject categorical input; `LLMPairwise` doesn't, since it reads variable names rather than values. All four accept `show_progress` and `random_state`, matching `PC` and `ExpertInLoop`.
 
 The four estimators differ in what they assume about the data and how they pick a direction:
 
@@ -32,7 +32,7 @@ CI tests will follow pgmpy's existing dual-form convention (`ANM(ci_test="hsic")
 - `pgmpy.datasets.load_dataset("tubingen/<pair_id>")` for benchmark evaluation;
 - `pgmpy.metrics._BaseSupervisedMetric` as the basis for `PairwiseAccuracy`.
 
-**`PairwiseAccuracy`** subclasses `_BaseSupervisedMetric`. Its `evaluate(true, est)` returns `1.0` when the predicted `(cause, effect)` ordering matches the ground-truth edge and `0.0` otherwise. Since `_BaseSupervisedMetric.evaluate` takes a single graph pair per call, weighted accuracy and AUC across the Tübingen benchmark are computed by a separate `evaluate_many(true_graphs, est_graphs, weights=None, scores=None)` that returns `{accuracy, weighted_accuracy, auc}`. Whether `evaluate_many` stays on `PairwiseAccuracy` or moves up to `_BaseSupervisedMetric` for other metrics to reuse is a Phase 1 mentor decision.
+`PairwiseAccuracy` is a thin subclass of `_BaseSupervisedMetric`: `evaluate(true, est)` returns `1.0` if the predicted cause→effect ordering matches the ground-truth edge, and `0.0` otherwise. The base class's `evaluate` only handles one graph pair at a time, so weighted accuracy and AUC across the Tübingen benchmark go through a separate `evaluate_many(true_graphs, est_graphs, weights=None, scores=None)` that returns all three numbers at once. Whether `evaluate_many` belongs on `PairwiseAccuracy` or moves up to `_BaseSupervisedMetric` so other metrics can reuse it is something I'd like to settle with mentors in Phase 1.
 
 ### Alternative Solutions
 
@@ -49,8 +49,7 @@ ANM-pHSIC is one of the strongest individual methods on the Tübingen benchmark,
 
 **New files**
 
-- `pgmpy/causal_discovery/{ANM,IGCI,BivariateLiNGAM,LLMPairwise}.py`
-- `pgmpy/metrics/pairwise_accuracy.pypgmpy/tests/test_causal_discovery/test_{ANM,IGCI,BivariateLiNGAM,LLMPairwise,ExpertInLoop_pairwise}.py`
+- `pgmpy/causal_discovery/{ANM,IGCI,BivariateLiNGAM,LLMPairwise}.pypgmpy/metrics/pairwise_accuracy.pypgmpy/tests/test_causal_discovery/test_{ANM,IGCI,BivariateLiNGAM,LLMPairwise,ExpertInLoop_pairwise}.py`
 - `pgmpy/tests/test_metrics/test_pairwise_accuracy.py`
 - `examples/Pairwise_Causal_Discovery.ipynb`
 
@@ -123,7 +122,26 @@ The same interface applies to `IGCI`, `BivariateLiNGAM`, and `LLMPairwise`.
 
 ---
 
-**2. Using pairwise estimators inside `ExpertInLoop`**
+**2. Swapping components (CI test, regressor, nonlinearity)**
+
+```python
+from pgmpy.causal_discovery import ANM
+from pgmpy.ci_tests import KCI
+from sklearn.kernel_approximation import Nystroem
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import make_pipeline
+
+est = ANM(
+    ci_test=KCI(),
+    regressor=make_pipeline(Nystroem(n_components=200), Ridge()),
+).fit(pair)
+```
+
+Estimators, CI tests, and regressors compose via standard sklearn idioms, so users can swap in faster kernel approximations or alternative independence tests without touching pgmpy internals.
+
+---
+
+**3. Using pairwise estimators inside `ExpertInLoop`**
 
 ```python
 from pgmpy.causal_discovery import ExpertInLoop, ANM
@@ -137,7 +155,7 @@ Since all pairwise methods follow the same estimator contract, statistical and L
 
 ---
 
-**3. Benchmark evaluation on the Tübingen dataset**
+**4. Benchmark evaluation on the Tübingen dataset**
 
 ```python
 from pgmpy.causal_discovery import ANM
@@ -180,4 +198,3 @@ About 350 hours over 14 weeks (12 GSoC weeks plus a 2-week buffer).
 - Janzing, D., Mooij, J., Zhang, K., Lemeire, J., Zscheischler, J., Daniušis, P., Steudel, B., & Schölkopf, B. (2012). Information-geometric approach to inferring causal directions. *Artificial Intelligence*, 182–183, 1–31. [doi:10.1016/j.artint.2012.01.002](https://doi.org/10.1016/j.artint.2012.01.002)
 - Hyvärinen, A., & Smith, S. M. (2013). Pairwise likelihood ratios for estimation of non-Gaussian structural equation models. *Journal of Machine Learning Research*, 14, 111–152. [JMLR](https://www.jmlr.org/papers/v14/hyvarinen13a.html)
 - Mooij, J. M., Peters, J., Janzing, D., Zscheischler, J., & Schölkopf, B. (2016). Distinguishing cause from effect using observational data: methods and benchmarks. *Journal of Machine Learning Research*, 17(32), 1–102. [arXiv:1412.3773](https://arxiv.org/abs/1412.3773)
-- Long, S., Piché, A., Zantedeschi, V., Schuster, T., & Drouin, A. (2023). Causal Discovery with Language Models as Imperfect Experts. [arXiv:2304.08639](https://arxiv.org/abs/2304.08639)
