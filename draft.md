@@ -236,7 +236,6 @@ class TabularBootstrap:
 
 ```python
 >>> from pgmpy.estimators import BootstrapEstimator
-
 >>> from pgmpy.estimators import HillClimbSearch
 
 # Initialize bootstrap estimator
