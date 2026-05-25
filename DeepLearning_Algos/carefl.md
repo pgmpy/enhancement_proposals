@@ -24,7 +24,6 @@ class CAREFL(_BaseCausalDiscovery):
         mode: str = "multivariate",
         alpha: float = 0.05,
         val_fraction: float = 0.2,
-        device: str = "cpu",
     ):
         ...
 
