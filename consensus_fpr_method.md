@@ -165,3 +165,6 @@ The final DAG becomes:
 - B -> C
 
 This graph is acyclic and has the maximum possible total confidence score under the DAG constraint.
+
+### References
+- Reconstructing Consensus Bayesian Network Structures with Application to Learning Molecular Interaction Networks: https://10.4230/OASICS.GCB.2013.46

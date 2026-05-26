@@ -18,51 +18,42 @@ Step 1: Resample the dataset with replacement to generate a new dataset of size 
 
 Step 2: Apply the causal discovery algorithm to the newly generated dataset.
 
-Step 3: Compute the stability score for each feature of interest (e.g., edge existence or edge orientation).
+Step 3: Repeat the process for M bootstrap iterations.
 
-Step 4: Repeat the process for M bootstrap iterations.
+Step 4: Compute the statistics of interest (e.g., edge existence probabilities, edge orientation frequencies).
 
-Step 5: Calculate the mean stability score across all bootstrap iterations for each feature of interest.
+Step 5: Form a optimal consensus graph using the computed statistics.
 
 ## Consensus Graph Construction
 
 To construct a final consensus graph, we apply a threshold to the estimated stability scores. However, naive thresholding introduces a challenge: even if every bootstrap graph is a valid Directed Acyclic Graph (DAG), independently aggregating highly frequent edges can create cycles.
 
-To address this and construct a valid consensus DAG, the following consensus methods can be used:
+To address this and construct a valid consensus DAG, we support two primary consensus strategies:
 
 ### 1. Greedy Edge-Addition (Kruskal-style)
 
 This approach ensures that the highest confidence edges survive, subject to DAG constraints.
-- Sort all candidate edges in descending order by their stability score.
+- Sort all candidate edges in descending order by their stability statistics.
 - Iteratively add edges one-by-one to the final graph.
 - If adding an edge creates a cycle, it is skipped.
 
-### 2. Direction Thresholding Separately
+### 2. False Positive Rate (FPR) & Branch-and-Cut (Recommended)
 
-This method decouples the existence of a causal link from its specific orientation.
-- First, compute the stability score for the *existence* of an edge between two nodes (ignoring its direction). Apply a threshold to form a consensus skeleton.
-- Second, for the edges that survive, compare the relative frequency of the orientations. Assign the direction that was most frequent across the bootstrap iterations.
-- *(Note: Cycle resolution steps may still be required if the resulting orientations create a cycle).*
+This method decouples thresholding from heuristic cycle resolution by introducing a statistically rigorous approach. This approach come to consensus by two steps:
+- **False Positive Rate of Edges (FPR):** Fits a Beta mixture model using the Expectation-Maximization (EM) algorithm to model the distribution of true and false edges. It calculates a posterior log odds ratio for each candidate edge, allowing a dynamic confidence threshold tailored to a desired false positive rate.
+- **Branch-and-Cut Acyclicity Optimization:** Models consensus DAG construction as an Integer Linear Program (ILP) that maximizes the total confidence score of selected edges while enforcing acyclicity using cutting-plane constraints.
+
+For a comprehensive breakdown, mathematical formulation, and examples of this methodology, please refer to `consensus_fpr_method.md`.
 
 ## Architecture
 
-The bootstrap framework constucted using two main classes:
+The bootstrap framework is implemented using a single unified class:
 
-- `BootstrapEstimator`
-- `TabularBootstrap`
-
-`BootstrapEstimator` is the main entry point responsible for:
-- bootstrap estimation,
-- scoring,
-- and consensus graph construction.
-
-`TabularBootstrap` is a result container class responsible for:
-- storing iteration-level graph information,
-- aggregated bootstrap statistics,
-- and analysis utilities.
-
-This separation keeps the estimation logic independent from the result representation layer.
-
+`BootstrapEstimator` is the central interface responsible for:
+- Executing the bootstrap estimation pipeline.
+- Computing stability statistics (e.g., edge confidence and orientation scores).
+- Managing iteration-level results.
+- Constructing consensus graphs.
 
 ## API
 
@@ -85,13 +76,6 @@ class BootstrapEstimator:
         sample_frac:
             Fraction of samples used in each bootstrap dataset.
 
-        threshold:
-            Default confidence threshold used during consensus graph construction.
-
-        return_type:
-            Type of graph returned by the estimator.
-            Inferred automatically from the estimator instance.
-
         seed:
             Random seed used for reproducibility.
 
@@ -107,7 +91,7 @@ class BootstrapEstimator:
         --------
         1. Generate bootstrap resampled datasets.
         2. Execute the causal discovery algorithm.
-        3. Store iteration-level graph information.
+        3. Store iteration-level graph and sample index information.
         4. Compute stability statistics.
 
         Returns
@@ -116,119 +100,54 @@ class BootstrapEstimator:
 
         Attributes Created
         ------------------
-        results_:
-            Instance of TabularBootstrap containing bootstrap statistics.
+        edge_prob_: dict or DataFrame
+            Edge existence probabilities estimated across bootstrap iterations.
 
-        graph_:
-            Final consensus graph.
+        direction_prob_: dict or DataFrame
+            Orientation stability scores estimated across bootstrap iterations.
 
-        adjacency_matrix_:
-            Adjacency matrix representation of the consensus graph.
+        bootstrap_results_: dict or DataFrame
+            Iteration-level structural summary table (history of all bootstrap runs).
+
         """
 
-    def _resample(self, data):
+    # --------------------------------------------------
+    # Consensus Graph Construction
+    # --------------------------------------------------
+
+    def consensus_graph(self, threshold=None):
         """
-        Generate a bootstrap resampled dataset.
+        Construct and return a valid consensus graph.
         """
 
-    def _score(self):
-        """
-        Compute bootstrap stability statistics.
-        """
-
-    def consensus_graph_(self, threshold=None, technique=None):
-        """
-        Construct a valid consensus graph.
-
-        Parameters
-        ----------
-        threshold:
-            Confidence threshold used for edge selection.
-            Defaults to self.threshold.
-
-        technique:
-            Consensus graph construction strategy.
-        """
-
-    def adjacency_matrix_(self, threshold=None, technique=None):
+    def adjacency_matrix(self, threshold=None, technique=None):
         """
         Return adjacency matrix representation of the consensus graph.
-        """
-
-    @property
-    def results_(self):
-        """
-        Return the TabularBootstrap result container.
-        """
-
-class TabularBootstrap:
-    """
-    Result container for bootstrap estimation.
-
-    Stores iteration-level graph information, aggregated stability
-    statistics, and utilities for structural analysis.
-    """
-
-    # --------------------------------------------------
-    # Aggregated Statistics
-    # --------------------------------------------------
-
-    def edge_scores_(self):
-        """
-        Return empirical edge stability scores.
-
-        Returns
-        -------
-        dict or DataFrame
-            Edge existence probabilities estimated across
-            bootstrap iterations.
-        """
-
-    def direction_scores_(self):
-        """
-        Return edge orientation stability statistics.
-
-        Returns
-        -------
-        dict or DataFrame
-            Orientation frequencies estimated across
-            bootstrap iterations.
-        """
-
-    def bootstrap_table_(self):
-        """
-        Return iteration-level structural summary table.
-
-        Example
-        -------
-        | iter | AB | BC | CD |
-        | ---- | -- | -- | -- |
-        | 1    | 1  | 0  | 1  |
-        | 2    | 1  | 1  | 0  |
-        | 3    | 0  | 1  | 1  |
         """
 
     # --------------------------------------------------
     # Iteration-Level Access
     # --------------------------------------------------
 
-    def nth_graph_(self, n):
+    def nth_edges(self, n):
         """
-        Return the graph generated during the nth
+        Return the edge existence probabilities for the nth bootstrap iteration.
+        """
+    
+    def nth_directions(self, n):
+        """
+        Return the orientation frequencies for the nth bootstrap iteration.
+        """
+    
+    def resampled_data(self, n):
+        """
+        Reconstruct and return the bootstrap dataset used during the nth
         bootstrap iteration.
-        """
-
-    def resample_data_(self, n):
-        """
-        Reconstruct and return the bootstrap dataset used
-        during the nth bootstrap iteration.
 
         Notes
         -----
-        Only sampled row indices are stored internally
-        for memory efficiency.
+        Only sampled row indices are stored internally for memory efficiency.
         """
-
 ```
 
 
@@ -252,34 +171,23 @@ class TabularBootstrap:
 
 >>> est.fit(data)
 
-# Construct consensus graph
+# Access fitted stability statistics directly as attributes
 
->>> est.consensus_graph_(
-        threshold=0.8,
-        technique="greedy",
-    )
+>>> est.edge_prob_
+>>> est.direction_prob_
+>>> est.bootstrap_results_
 
-# Adjacency matrix representation
 
->>> est.adjacency_matrix_(
-        threshold=0.8,
-        technique="greedy",
-    )
+# Construct consensus graph and adjacency matrix
 
-# Access bootstrap results
+>>> est.consensus_graph()
+>>> est.adjacency_matrix()
 
->>> results = est.results_
+# Access iteration-level details
 
-# Aggregated statistics
-
->>> results.edge_scores_()
->>> results.direction_scores_()
->>> results.bootstrap_table_()
-
-# Iteration-level access
-
->>> results.nth_graph_(10)
->>> results.resample_data_(10)
+>>> est.nth_edges(10)
+>>> est.nth_directions(10)
+>>> est.resample_data(10)
 
 ```
 
@@ -287,3 +195,4 @@ class TabularBootstrap:
 
 - Original Issue: https://github.com/pgmpy/pgmpy/issues/3326
 - Reference Paper: https://arxiv.org/pdf/1301.6695
+- FPR Method: https://doi.org/10.4230/OASICS.GCB.2013.46
