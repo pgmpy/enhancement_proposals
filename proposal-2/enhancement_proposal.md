@@ -1,7 +1,6 @@
 ## Pairwise Causal Discovery for pgmpy
 
 Contributor: [@hanara2112](https://github.com/hanara2112) (Aryaman Bahl, IIIT Hyderabad)
-Mentors: ankurankan et al.
 
 ### Introduction
 
