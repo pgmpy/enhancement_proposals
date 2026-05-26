@@ -21,9 +21,9 @@ In this ADMG:
 - **No standard instrumental variable** - there is no variable that affects X without also being affected by the confounder. 
 Yet `P(Y | do(X))` is identifiable, and the ID algorithm derives the correct formula automatically:
  
-```
-P(Y | do(X)) = Σ_Z [ P(Z | X) · Σ_{X'} [ P(Y | Z, X') · P(X') ] ]
-```
+$$
+P\bigl(Y \mid \mathrm{do}(X)\bigr) = \sum_{Z} \left[ P(Z \mid X) \cdot \sum_{X'} \left[ P(Y \mid Z, X') \cdot P(X') \right] \right]
+$$
 This project proposes extending pgmpy's identification capabilities with **formula-returning** identification methods. Unlike role-based approaches, these algorithms output a closed-form symbolic expression over observed distributions for the target causal effect, or raise an exception when identification is not possible. The ID algorithm (Shpitser & Pearl, 2006) is **complete** for semi-Markovian models - it strictly subsumes what backdoor, frontdoor, and IV criteria can achieve individually.
 
 ### Proposed Solution
@@ -62,17 +62,21 @@ ProbabilityExpression            (probability_expressions.py)
 The four algorithms share a unified call pattern:
  
 ```python
-result = ID().identify(admg)       # returns ProbabilityExpression
-print(result.to_latex())           # renders LaTeX formula
-result.evaluate(data=df)           # numeric estimate from observed data
+algo = ID()
+result = algo.identify(admg)      # returns ProbabilityExpression or False
+if result is False:
+    print(algo.hedge_.nodes())    # inspect the witness subgraph
+else:
+    print(result.to_latex())      # renders LaTeX formula
+    algo.evaluate(admg, data=df)  # numeric estimate from observed data
 ```
  
 | Algorithm | Query | Required roles | Failure |
 |---|---|---|---|
-| `ID` | `P(y \| do(x))` | `exposures`, `outcomes` | `HedgeException` |
-| `IDC` | `P(y \| do(x), z)` | `exposures`, `outcomes`, `conditioning` | `HedgeException` |
-| `IDStar` | `P(y_x)` counterfactual | `exposures`, `outcomes` + query | `HedgeException` |
-| `SigmaID` | `P(y \| do(x))` multi-source | `exposures`, `outcomes` + sigma graphs | `HedgeException` |
+| `ID` | $P(y \mid do(x))$ | `exposures`, `outcomes` | Returns `False`, sets `self.hedge_` |
+| `IDC` | $P(y \mid do(x), z)$ | `exposures`, `outcomes`, `conditioning` | Returns `False`, sets `self.hedge_` |
+| `IDStar` | $P(y_x)$ counterfactual | `exposures`, `outcomes` + query | Returns `False`, sets `self.hedge_` |
+| `SigmaID` | $P(y \mid do(x))$ multi-source | `exposures`, `outcomes` + sigma graphs | Returns `False`, sets `self.hedge_` | 
  
 
 ### Alternative Solutions
@@ -162,8 +166,8 @@ The ID algorithms output mathematical formulas. We need Python objects to hold, 
 Each formula is a tree built from four node types:
  
 - **`Prob(variables, do, cond)`** - an atomic probability term such as `P(Y | X)` or `P(Y | do(X))`. `variables` is the set of random variables whose probability is being expressed. `do` is the set of variables being intervened on via the do-operator (forcing them to a value). `cond` is the set of variables being passively conditioned on (observed). Both `do` and `cond` are sets of variable names at the symbolic level — concrete values are only needed at `evaluate()` time.
-- **`Marginal(expr, summed_vars)`** - represents `Σ_{S} expr`, summing out the variables in `summed_vars`.
-- **`Product(factors)`** - represents `expr_1 · expr_2 · ...`
+- **`Marginal(expr, summed_vars)`** - represents $\sum_{S} \text{expr}$, summing out the variables in `summed_vars`.
+- **`Product(factors)`** - represents $\text{expr}_1 \cdot \text{expr}_2 \cdot \ldots$
 - **`Quotient(numerator, denominator)`** - represents `numerator / denominator`, used by IDC.
 
 ```python
@@ -272,7 +276,7 @@ class HedgeException(Exception):
 The frontdoor formula, as a `ProbabilityExpression` tree, illustrates how the pieces compose:
  
 ```python
-# P(Y | do(X)) = Σ_M [ P(M|X) · Σ_{X'} [ P(Y|M,X') · P(X') ] ]
+# $P(Y \mid do(X)) = \sum_{M} \left[ P(M \mid X) \cdot \sum_{X'} \left[ P(Y \mid M, X') \cdot P(X') \right] \right]$
  
 expr = Marginal(
     Product([
@@ -344,10 +348,10 @@ The table below lists every `ADMG` method the algorithm needs. Some already exis
 | `G.predecessors_before(vi, ordered)` | To be added | Returns nodes appearing before `vi` in a given topological ordering |
  
 `IDC` handles the conditional case `P(y | do(x), z)`. It first checks if the intervention is actually needed using a d-separation test on `G_{\bar{X}}`. If it is, it breaks the query into a ratio of two `ID` calls:
- 
-```
-P(y | do(x), z) = P(y, z | do(x)) / P(z | do(x))
-```
+
+$$
+P(y \mid do(x), z) = \frac{P(y, z \mid do(x))}{P(z \mid do(x))}
+$$
  
 ```python
 class IDC(_BaseFormulaIdentification):
@@ -406,7 +410,7 @@ class IDStar(_BaseFormulaIdentification):
     ... ).identify(admg)
     >>> print(result.to_latex())
     """
-    supported_graph_types = (ADMG, DAG)
+    supported_graph_types = (ADMG,)
  
     def __init__(self, counterfactual_query: list):
         self.counterfactual_query = counterfactual_query
@@ -440,7 +444,7 @@ class SigmaID(_BaseFormulaIdentification):
     ... ).identify(obs_admg)
     >>> print(result.to_latex())
     """
-    supported_graph_types = (ADMG, DAG)
+    supported_graph_types = (ADMG,)
  
     def __init__(self, sigma_graphs: list):
         self.sigma_graphs = sigma_graphs
@@ -465,7 +469,8 @@ pgmpy/
 │   ├── id_star.py                   <- NEW: IDStar, _id_star_recursive()
 │   └── sigma_id.py                  <- NEW: SigmaID
 ```
- 
+
+## Testing Plan 
 
 ## User Journeys with the Solution
 
@@ -493,13 +498,18 @@ print(result.to_latex())
 Before spending time on estimation, a data scientist wants to know upfront whether the causal effect can be identified from observational data at all. If not, the algorithm tells them exactly which subgraph makes it impossible.
 
 ```python
-from pgmpy.identification import ID, HedgeException
+from pgmpy.identification import ID
 
-try:
-    result = ID().identify(admg)
-    print(result.to_latex())
-except HedgeException as e:
-    print(f"Not identifiable. Hedge: {list(e.hedge.nodes())}")
+algo = ID()
+result = algo.identify(admg)
+
+if result is False:
+    print("Not identifiable.")
+    print("Hedge nodes:", list(algo.hedge_.nodes()))
+    print("Hedge edges:", list(algo.hedge_.edges()))
+else:
+    numeric = algo.evaluate(admg, data=df)
+    print(f"Estimated causal effect: {numeric:.3f}")
 ```
 
 #### Journey 3: Epidemiologist - Conditional interventional distribution
