@@ -24,7 +24,8 @@ Yet `P(Y | do(X))` is identifiable, and the ID algorithm derives the correct for
 $$
 P\bigl(Y \mid \mathrm{do}(X)\bigr) = \sum_{Z} \left[ P(Z \mid X) \cdot \sum_{X'} \left[ P(Y \mid Z, X') \cdot P(X') \right] \right]
 $$
-This project proposes extending pgmpy's identification capabilities with **formula-returning** identification methods. Unlike role-based approaches, these algorithms output a closed-form symbolic expression over observed distributions for the target causal effect, or raise an exception when identification is not possible. The ID algorithm (Shpitser & Pearl, 2006) is **complete** for semi-Markovian models - it strictly subsumes what backdoor, frontdoor, and IV criteria can achieve individually.
+
+This project proposes extending pgmpy's identification capabilities with **formula-returning** identification methods. Unlike role-based approaches, these algorithms output a closed-form symbolic expression over observed distributions for the target causal effect, or return `False` and store the witness subgraph in `self.hedge_` when identification is not possible. The ID algorithm (Shpitser & Pearl, 2006) is **complete** for semi-Markovian models - it strictly subsumes what backdoor, frontdoor, and IV criteria can achieve individually.
 
 ### Proposed Solution
 
@@ -32,13 +33,13 @@ The project has two main components.
 
 **Component 1: `ProbabilityExpression`** - a symbolic expression hierarchy placed in `pgmpy/identification/probability_expressions.py`, representing the closed-form formulas output by identification algorithms. It supports pretty-printing (LaTeX) and numeric evaluation against observed data. This class and its subclasses are pure data containers - they hold and render formula trees.
  
-**Component 2: A new base class `_BaseFormulaIdentification`** added to `pgmpy/identification/base.py`, alongside the existing `_BaseIdentification`. This new base class defines the formula-returning identification methods: `identify()` takes a causal graph and returns a `ProbabilityExpression`, or raises `HedgeException` when identification fails. The four algorithms `ID`, `IDC`, `IDStar`, and `SigmaID` inherit from this base.
+**Component 2: A new base class `_BaseFormulaIdentification`** added to `pgmpy/identification/base.py`, alongside the existing `_BaseIdentification`, which will be renamed to `_BaseGraphicalIdentification` for clarity. This new base class defines the formula-returning identification methods: `identify()` takes a causal graph and returns a `ProbabilityExpression`, or returns `False` when identification fails (storing the witness subgraph in `self.hedge_`). The four algorithms `ID`, `IDC`, `IDStar`, and `SigmaID` inherit from this base.
 
 The two hierarchies are parallel and independent:
 
 ```
 # Existing — unchanged
-_BaseIdentification              (base.py)
+_BaseGraphicalIdentification    (base.py)
     identify() → (modified_graph, bool)
     ├── adjustment
     └── frontdoor
@@ -102,8 +103,8 @@ class _BaseFormulaIdentification:
     expressions.
  
     Subclasses implement _identify() to run the identification algorithm
-    and return a ProbabilityExpression, or raise HedgeException when
-    identification is not possible.
+    and return a ProbabilityExpression, or return False and store the
+    witness subgraph in self.hedge_ when identification is not possible.
     """
  
     # Tuple of graph types this algorithm supports.
@@ -133,11 +134,9 @@ class _BaseFormulaIdentification:
         -------
         ProbabilityExpression
             Symbolic formula for the identified causal effect.
- 
-        Raises
-        ------
-        HedgeException
-            If the causal effect is not identifiable.
+
+        If the causal effect is not identifiable, returns False and stores
+        the witness subgraph in self.hedge_.
         """
         self._validate_query(causal_graph)
         return self._identify(causal_graph)
@@ -150,10 +149,7 @@ class _BaseFormulaIdentification:
         Check whether the given causal graph produces an identifiable effect.
         
         """
-        try:
-            self.identify(causal_graph)
-            return True
-        except HedgeException:
+        return self.identify(causal_graph) is not False
  
     def __call__(self, causal_graph):
         return self.identify(causal_graph)
@@ -198,7 +194,7 @@ class ProbabilityExpression:
  
         Parameters
         ----------
-        data : pd.DataFrame
+        data
             Observed data. Column names must match variable names.
         """
         raise NotImplementedError
@@ -249,28 +245,6 @@ class Quotient(ProbabilityExpression):
     def __repr__(self): ...
  
  
-class HedgeException(Exception):
-    """
-    Raised by the ID algorithm when a causal effect is not identifiable.
- 
-    The `hedge` attribute is an ADMG subgraph — the actual subgraph that
-    witnesses non-identifiability. Users can inspect its nodes and edges
-    to understand why identification failed.
- 
-    Parameters
-    ----------
-    G : ADMG
-        The graph in which identification failed.
-    hedge : ADMG
-        The C-component subgraph that forms the hedge.
-    """
-    def __init__(self, G, hedge):
-        self.G = G
-        self.hedge = hedge
-        super().__init__(
-            f"Causal effect is not identifiable. "
-            f"Hedge found over nodes: {list(hedge.nodes())}"
-        )
 ```
  
 The frontdoor formula, as a `ProbabilityExpression` tree, illustrates how the pieces compose:
@@ -300,7 +274,7 @@ print(expr.to_latex())
 
 These two algorithms will be implemented as the part of the Issue [#2529](https://github.com/pgmpy/pgmpy/issues/2529). Before the Implementation of the ID algorithms we need to add method to `get_c_components()` Issue [#3079](https://github.com/pgmpy/pgmpy/issues/3079) to the `ADMG` class.
 
-The `ID` algorithm (Shpitser & Pearl, 2006) is complete for semi-Markovian causal models. It can identify any identifiable interventional distribution, and when identification is not possible, it raises a `HedgeException` that includes the subgraph responsible.
+The `ID` algorithm (Shpitser & Pearl, 2006) is complete for semi-Markovian causal models. It can identify any identifiable interventional distribution, and when identification is not possible, it returns `False` and stores the subgraph responsible in `self.hedge_`.
  
 The algorithm works recursively on the graph's **C-components** (groups of nodes connected through latent confounders, that is, connected components of the bidirected skeleton). It tries nine rules in order: restricting to ancestors of the outcome, pushing redundant variables into the intervention set, decomposing across independent C-components, and expressing identification in terms of observed conditionals. If none of these apply, a hedge is found and the effect is not identifiable.
  
@@ -314,7 +288,7 @@ class ID(_BaseFormulaIdentification):
     Examples
     --------
     >>> from pgmpy.base import ADMG
-    >>> from pgmpy.identification import ID, HedgeException
+    >>> from pgmpy.identification import ID
     >>> admg = ADMG(
     ...     directed_ebunch=[("X", "Z"), ("Z", "Y")],
     ...     bidirected_ebunch=[("X", "Z")],
@@ -326,7 +300,7 @@ class ID(_BaseFormulaIdentification):
     """
     supported_graph_types = (ADMG, DAG)
  
-    def _identify(self, causal_graph) -> ProbabilityExpression:
+    def _identify(self, causal_graph):
         y = frozenset(causal_graph.get_role("outcomes"))
         x = frozenset(causal_graph.get_role("exposures"))
         P = Prob(frozenset(causal_graph.nodes()))
@@ -370,7 +344,7 @@ class IDC(_BaseFormulaIdentification):
     """
     supported_graph_types = (ADMG, DAG)
  
-    def _identify(self, causal_graph) -> ProbabilityExpression:
+    def _identify(self, causal_graph):
         y = frozenset(causal_graph.get_role("outcomes"))
         x = frozenset(causal_graph.get_role("exposures"))
         z = frozenset(causal_graph.get_role("conditioning"))
@@ -399,7 +373,7 @@ class IDStar(_BaseFormulaIdentification):
  
     Parameters
     ----------
-    counterfactual_query : list[tuple]
+    counterfactual_query
         Each tuple is (variable, intervention_context), e.g.
         [("Y", {"X": 1})] represents P(Y_{X=1}).
  
@@ -412,10 +386,10 @@ class IDStar(_BaseFormulaIdentification):
     """
     supported_graph_types = (ADMG,)
  
-    def __init__(self, counterfactual_query: list):
+    def __init__(self, counterfactual_query):
         self.counterfactual_query = counterfactual_query
  
-    def _identify(self, causal_graph) -> ProbabilityExpression:
+    def _identify(self, causal_graph):
         twin_graph = self._construct_twin_network(causal_graph)
         return _id_star_recursive(causal_graph, twin_graph,
                                   self.counterfactual_query)
@@ -433,7 +407,7 @@ class SigmaID(_BaseFormulaIdentification):
  
     Parameters
     ----------
-    sigma_graphs : list[ADMG]
+    sigma_graphs
         One ADMG per available data source, annotated to indicate which
         variables were randomised in that source.
  
@@ -446,10 +420,10 @@ class SigmaID(_BaseFormulaIdentification):
     """
     supported_graph_types = (ADMG,)
  
-    def __init__(self, sigma_graphs: list):
+    def __init__(self, sigma_graphs):
         self.sigma_graphs = sigma_graphs
  
-    def _identify(self, causal_graph) -> ProbabilityExpression:
+    def _identify(self, causal_graph):
         ...
 ```
 
@@ -459,12 +433,11 @@ class SigmaID(_BaseFormulaIdentification):
 pgmpy/
 ├── identification/
 │   ├── __init__.py                  <- exports all public classes
-│   ├── base.py                      <- _BaseIdentification (unchanged)
+│   ├── base.py                      <- _BaseGraphicalIdentification (renamed)
 │   ├── adjustment.py                <- Adjustment (unchanged)
 │   ├── frontdoor.py                 <- Frontdoor (unchanged)
 │   ├── probability_expressions.py   <- NEW: ProbabilityExpression,
-│   │                                   Prob, Marginal, Product, Quotient,
-│   │                                   HedgeException
+│   │                                   Prob, Marginal, Product, Quotient
 │   ├── id_algorithm.py              <- NEW: ID, IDC, _id_recursive()
 │   ├── id_star.py                   <- NEW: IDStar, _id_star_recursive()
 │   └── sigma_id.py                  <- NEW: SigmaID
