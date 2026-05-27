@@ -4,7 +4,7 @@ Contributors: @anusa-saha (Anusa Saha, NIT Agartala)
 
 ### Introduction
 
-#### Extension of Score Based Causal Discovery Algorithms
+**Extension of Score Based Causal Discovery Algorithms**
 
 The current repository mainly supports the GES (Greedy Equivalence Search) algorithm for causal discovery. Although GES is an important score-based method, it becomes computationally expensive for large and dense datasets because it directly searches in DAG/CPDAG space. Modern causal discovery research has introduced more scalable and efficient approaches to overcome these limitations.
 
@@ -45,7 +45,8 @@ Another important improvement introduced by BOSS is its simplified and efficient
 
 ### Details of proposed solution
 
-#### Proposal 1: FGES Optimizations for GES:
+**Proposal 1: FGES Optimizations for GES:**
+
 This proposal introduces lightweight FGES-style scalability optimizations into the current GES implementation while preserving the existing legality conditions, CPDAG semantics, and graph operation logic already implemented in the estimator.
 
 The goal is to improve runtime scalability on larger graphs without rewriting the mathematical core of the algorithm.
