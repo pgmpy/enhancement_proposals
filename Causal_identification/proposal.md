@@ -443,7 +443,37 @@ pgmpy/
 │   └── sigma_id.py                  <- NEW: SigmaID
 ```
 
-## Testing Plan 
+## Testing Plan
+
+The testing plan is split into three layers so each piece can be checked on its own before the pieces are combined.
+
+### Layer 1: `ProbabilityExpression` unit tests
+
+These tests focus on the expression tree only. They should not touch any graph code. The goal is to verify that the basic building blocks behave like a clean, predictable data structure.
+
+- Check that `Prob`, `Marginal`, `Product`, and `Quotient` can be constructed with the expected children and stored arguments.
+- Verify the tree shape is consistent across all node types, so traversal code can treat them uniformly.
+- Use a frontdoor-style expression as a rendering regression test, since it exercises `Prob`, `Marginal`, and `Product` in one example.
+
+### Layer 2: ID and IDC integration tests
+
+These tests should use canonical graphs from the literature and check the full identification flow end to end.
+
+- The bow-arc graph should confirm that ID succeeds on a case where backdoor and frontdoor do not apply.
+- A simple DAG with no confounding should reduce to the expected direct expression.
+- A frontdoor graph should recover the marginal-over-mediator form.
+- A clearly non-identifiable graph should return `False` and leave a witness graph in `self.hedge_`.
+- IDC should be tested with a case where the conditional query turns into a quotient of two ID calls.
+
+### Layer 3: Cross-validation against reference implementations
+
+For graphs where `causaleffect` produces a formula, the returned expression should match our tree structure and symbolic content. Exact ordering inside sets does not matter, but the node types and recursive layout should line up.
+
+- Add a small helper for structural equivalence checks.
+- Parametrize tests using examples from Tikka and Karvanen (2017), especially the worked cases in Section 5.
+- Compare the LaTeX output as a secondary check when a reference formula is available.
+
+Together, these layers cover the expression container, the algorithmic core, and the compatibility surface with existing references.
 
 ## User Journeys with the Solution
 
