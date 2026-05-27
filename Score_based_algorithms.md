@@ -9,13 +9,13 @@ The current repository mainly supports the GES (Greedy Equivalence Search) algor
 
 This proposal aims to extend the repository by implementing a sequence of advanced algorithms:
 
-    - FGES (Fast Greedy Equivalence Search):
+- FGES (Fast Greedy Equivalence Search):
     FGES improves the scalability of traditional GES through optimized graph search.
-    - SP (Sparsest Permutation):
+- SP (Sparsest Permutation):
     SP introduces permutation-based search instead of direct DAG-space optimization.
-    - GRaSP (Greedy Relaxations of the Sparsest Permutation):
+- GRaSP (Greedy Relaxations of the Sparsest Permutation):
     SP introduces permutation-based search instead of direct DAG-space optimization.
-    - BOSS (Best Order Score Search):
+- BOSS (Best Order Score Search):
     BOSS further improves scalability using efficient caching and optimized search strategies.
 
 Together, these implementations will provide a complete progression of modern score-based causal discovery algorithms within a unified and research-oriented framework.
