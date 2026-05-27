@@ -51,12 +51,6 @@ pgmpy/
       test_carefl.py   # (new)
 ```
 
-The detailed implementation steps, key design decisions, API, and tests for each algorithm are provided in separate files:
-- [CASTLE Implementation Details](castle.md)
-- [DiffAN Implementation Details](diffan.md)
-- [GraN-DAG Implementation Details](gran-dag.md)
-- [CAREFL Implementation Details](carefl.md)
-
 # CASTLE: Implementation Details
 
 **Algorithm steps:**
