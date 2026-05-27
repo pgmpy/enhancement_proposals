@@ -5,12 +5,15 @@ Contributors: @anusa-saha (Anusa Saha, NIT Agartala)
 ### Introduction
 
 #### Extension of Score Based Causal Discovery Algorithms
+
 The current repository mainly supports the GES (Greedy Equivalence Search) algorithm for causal discovery. Although GES is an important score-based method, it becomes computationally expensive for large and dense datasets because it directly searches in DAG/CPDAG space. Modern causal discovery research has introduced more scalable and efficient approaches to overcome these limitations.
 
 This proposal aims to extend the repository by implementing a sequence of advanced algorithms:
 
 - FGES (Fast Greedy Equivalence Search):
     FGES improves the scalability of traditional GES through optimized graph search.
+- Non parameteric GES: 
+    A non-parametric extension allows the framework to model complex nonlinear dependencies and non-Gaussian relationships
 - SP (Sparsest Permutation):
     SP introduces permutation-based search instead of direct DAG-space optimization.
 - GRaSP (Greedy Relaxations of the Sparsest Permutation):
