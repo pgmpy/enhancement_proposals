@@ -317,7 +317,7 @@ The table below lists every `ADMG` method the algorithm needs. Some already exis
 | `G.get_ancestral_graph(node_set)` | Already exists | Returns the induced ADMG subgraph over ancestor nodes |
 | `G.is_mseparated(u, v, observed)` | Already exists | Used by IDC for the d-separation check |
 | `G.get_c_components()` | To be added ([#3079](https://github.com/pgmpy/pgmpy/issues/3079)) | `get_district(node)` already exists per node; this extends it to partition the full graph |
-| `G.remove_incoming_edges(node_set)` | To be added | Returns a new ADMG with all directed edges into `node_set` removed, used to compute `G_{\bar{X}}` |
+| `G.do(node_set)` | To be added for `ADMG` (already exists in `DAG`) | Returns the mutilated graph with incoming directed edges into `node_set` removed, i.e. computes `G_{\bar{X}}` |
 | `G.topological_sort(node_set)` | To be added | Topological order restricted to a given node set, built on top of the existing directed-edge structure |
 | `G.predecessors_before(vi, ordered)` | To be added | Returns nodes appearing before `vi` in a given topological ordering |
  
@@ -349,7 +349,7 @@ class IDC(_BaseFormulaIdentification):
         x = frozenset(causal_graph.get_role("exposures"))
         z = frozenset(causal_graph.get_role("conditioning"))
  
-        G_bar_x = causal_graph.remove_incoming_edges(x)
+        G_bar_x = causal_graph.do(x)
         if G_bar_x.is_mseparated(y, x, conditional_set=z):
             return Prob(y, cond=x | z)
  
