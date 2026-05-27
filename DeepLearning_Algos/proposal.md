@@ -72,17 +72,19 @@ pgmpy/
 ## API
 
 ### `_CASTLEModel(nn.Module)` (Internal)
-PyTorch masked autoencoder for feature reconstruction and target prediction.
+PyTorch masked autoencoder for feature reconstruction, target prediction, and training.
 
-- **`__init__(num_inputs, network_cfg: NetworkConfig)`**: Initializes masked input layers and scalar output layers.
+- **`__init__(num_inputs, network_cfg: NetworkConfig, train_cfg: TrainingConfig, reg_cfg: RegularizationConfig)`**: Initializes masked input layers, scalar output layers, grouped hyperparameters, and optimizer.
 - **`forward(X)`**: Returns full reconstruction (`Out`) and target prediction (`out_0`).
+- **`train(X_tensor)`**: Runs epochs (batch updates, Lagrangian multiplier adjustments) and returns the thresholded adjacency matrix (`W_final`).
 - **`get_W()`**: Computes adjacency matrix from current weights (L2 norm of column $j$ in sub-network $i$).
 
-### `_CASTLETrainer` (Internal)
-Handles the training loop and Augmented Lagrangian updates. Receives `RegularizationConfig` and `TrainingConfig` objects rather than individual parameters.
+### Internal dataclasses
+Grouped configuration objects used by `_CASTLEModel`.
 
-- **`__init__(model, train_cfg: TrainingConfig, reg_cfg: RegularizationConfig)`**: Configures grouped hyperparameters and optimizer.
-- **`train(X_tensor)`**: Runs epochs (batch updates, Lagrangian multiplier adjustments) and returns the thresholded adjacency matrix (`W_final`).
+- **`NetworkConfig`**: `hidden_dim`
+- **`TrainingConfig`**: `batch_size`, `max_epochs`, `optimizer`, `seed`, `verbose`
+- **`RegularizationConfig`**: `dag_weight`, `sparsity_weight`, `dag_penalty`, `edge_threshold`
 
 ### `CASTLE(_BaseCausalDiscovery)` (Public API)
 Validates data, orchestrates training, and builds the `pgmpy.DAG`.
@@ -96,8 +98,10 @@ CASTLE(
     batch_size=32,
     hidden_dim=32,
     edge_threshold=0.3,
+    target_col=None,
     max_epochs=200,
-    random_state=None,
+    seed=None,
+    verbose=False,
 )
 ```
 
@@ -112,14 +116,21 @@ $$\min_\Theta \frac{1}{N}\|Y - [f_\Theta(\tilde{X})]_{:,1}\|^2 + \lambda \underb
 - `batch_size`: Number of samples per mini-batch.
 - `hidden_dim` (h): Hidden layer width in each sub-network $f_k$.
 - `edge_threshold`: Edges with weight below this value are zeroed in the final DAG.
+- `target_col`: Target column name or index. Defaults to the first column when `None`.
 - `max_epochs`: Maximum number of training epochs.
-- `random_state`: Seed for reproducibility.
+- `seed`: Seed for reproducibility.
+- `verbose`: Enables training progress logging.
 
 **Methods:**
-- **`fit(X, target_col=None)`**: Trains the model and builds the DAG. `target_col` defaults to the first column.
+- **`fit(X)`**: Trains the model and builds the DAG.
 - **`predict(X)`**: Predicts the target column using the learned sub-network.
-- **`get_dag()`**: Returns the learned causal graph as a `pgmpy.base.DAG`.
-- **`get_adjacency_matrix()`**: Returns a Pandas DataFrame of the edge weights.
+
+**Attributes set after `fit`:**
+- `n_features_in_`: Number of input features seen during fit.
+- `feature_names_in_`: Feature names from the input DataFrame.
+- `causal_graph_`: Learned causal DAG as a `pgmpy.base.DAG`.
+- `adjacency_matrix_`: Weighted adjacency matrix as a Pandas DataFrame.
+- `model_`: Internal neural network instance used for training.
 
 ---
 
@@ -134,14 +145,15 @@ import numpy as np
 df = pd.DataFrame(np.random.randn(100, 3), columns=['A', 'B', 'Target'])
 
 # Default: Adam with lr=1e-3
-model = CASTLE(max_epochs=200, edge_threshold=0.3, random_state=42)
+model = CASTLE(max_epochs=200, edge_threshold=0.3, seed=42)
 
 # Custom optimizer — user controls all optimizer params directly
 opt = torch.optim.Adam(lr=1e-4, weight_decay=1e-5)
-model = CASTLE(max_epochs=200, edge_threshold=0.3, optimizer=opt, random_state=42)
+model = CASTLE(max_epochs=200, edge_threshold=0.3, optimizer=opt, seed=42)
 
-model.fit(df, target_col="Target")
-dag = model.get_dag()
+model = CASTLE(max_epochs=200, edge_threshold=0.3, target_col="Target", seed=42)
+model.fit(df)
+dag = model.causal_graph_
 preds = model.predict(df[['A', 'B']])
 ```
 
@@ -149,15 +161,15 @@ preds = model.predict(df[['A', 'B']])
 
 ## Test Plan
 
-All tests use fixed `random_state=42` and small synthetic DAGs generated via `utils.gen_data_nonlinear` (mirroring the reference implementation) so results are deterministic and fast. A shared 5-node linear DAG fixture with 500 samples is the default dataset unless stated otherwise.
+All tests use fixed `seed=42` and small synthetic DAGs generated via `utils.gen_data_nonlinear` (mirroring the reference implementation) so results are deterministic and fast. A shared 5-node linear DAG fixture with 500 samples is the default dataset unless stated otherwise.
 
 ### 1. Basic Input / Output Tests
 
-- **Fit returns self and sets attributes**: `CASTLE.fit(df)` returns the estimator instance; `causal_graph_`, `adjacency_matrix_`, `model_`, `scaler_`, `predictor_names_`, and `cols_` are all set after the call.
+- **Fit returns self and sets attributes**: `CASTLE.fit(df)` returns the estimator instance; `n_features_in_`, `feature_names_in_`, `causal_graph_`, `adjacency_matrix_`, and `model_` are all set after the call.
 - **Output shapes are correct**: `adjacency_matrix_` is `(d, d)`; `predict(X_test)` returns a 1-D array of length `N`; `get_W()` inside `_CASTLEModel` returns `(d, d)`.
-- **Target column selection**: Fit with `target_col` as a string name, as an integer index, and omitted (defaults to first column) — all three produce identical `cols_[0]`.
+- **Target column selection**: Construct with `target_col` as a string name, as an integer index, and omitted (defaults to first column) — all three produce identical results.
 - **Invalid target raises `ValueError`**: Passing a column name not in `X` or an out-of-range integer index raises `ValueError`.
-- **Predict column alignment**: `predict` called with a DataFrame whose columns match `predictor_names_` returns the same result as calling it with the equivalent numpy array in the same column order.
+- **Predict column alignment**: `predict` called with a DataFrame whose columns match `feature_names_in_` returns the same result as calling it with the equivalent numpy array in the same column order.
 - **DataFrame and numpy inputs**: `fit` accepts both `pd.DataFrame` and validates that non-numeric input raises.
 - **Single-column input is rejected gracefully**: A DataFrame with one column raises `ValueError` before any training begins, with a clear message.
 - **Hyperparameter edge cases do not crash**: `max_epochs=1`, `batch_size=1`, `batch_size > N`, `hidden_dim=1` — all complete without error and produce a valid DAG.
@@ -175,7 +187,7 @@ All tests use fixed `random_state=42` and small synthetic DAGs generated via `ut
 
 ### 4. Additional Tests
 
-- **`_CASTLEModel` and `_CASTLETrainer` are independently instantiable**: Both internal classes can be constructed and used without going through `CASTLE.fit`, confirming the three-class separation holds at the unit level.
+- **`_CASTLEModel` is independently instantiable**: The internal class can be constructed and used without going through `CASTLE.fit`, confirming the internal class separation holds at the unit level.
 - **Scaler is fit on training data only**: `scaler_.mean_` and `scaler_.scale_` match those of a separately fitted `StandardScaler` on the same training split, confirming test data has not leaked into the scaler.
 - **Missing `torch` raises a clean error**: Importing `CASTLE` without `torch` installed raises `ImportError` with an actionable install message, not a bare `ModuleNotFoundError`.
 - **`fit` → `predict` is stateless across calls**: Calling `predict` twice on the same input returns identical results — no stochastic behaviour during inference.
@@ -192,7 +204,7 @@ All tests use fixed `random_state=42` and small synthetic DAGs generated via `ut
 - **Output is a valid DAG**: `nx.is_directed_acyclic_graph(causal_graph_)` is `True` after every fit, across 5 random seeds.
 - **No self-loops**: `causal_graph_` contains no edge `(v, v)` for any node `v`.
 - **Predictions are in original scale**: `predict()` applies `scaler_.inverse_transform` before returning. Assert that mean and std of `predict(X_test)` are within a reasonable range of the target column's original (unscaled) mean and std.
-- **Reproducibility**: Two `CASTLE` instances with the same `random_state` and hyperparameters, fit on the same data, produce byte-identical `adjacency_matrix_` values and identical `predict` outputs.
+- **Reproducibility**: Two `CASTLE` instances with the same `seed` and hyperparameters, fit on the same data, produce byte-identical `adjacency_matrix_` values and identical `predict` outputs.
 
 # GraN-DAG: Implementation Details
 ---
