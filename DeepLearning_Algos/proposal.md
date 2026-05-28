@@ -124,7 +124,7 @@ $$\min_\Theta \frac{1}{N}\|Y - [f_\Theta(\tilde{X})]_{:,1}\|^2 + \lambda \underb
 - `max_epochs`: Maximum number of training epochs.
 - `min_loss_improvement`: Minimum decrease in total loss per epoch to count as an improvement for early stopping.
 - `early_stop_patience`: Number of consecutive epochs without improvement before stopping early.
-- `scaler`: Optional scaler for input normalization (for example, `sklearn.preprocessing.StandardScaler`). If provided, it is fit on training data and stored as `scaler_`.
+- `scaler`: Optional scaler for input normalization (for example, `sklearn.preprocessing.StandardScaler`). It must implement `fit(X)` and `transform(X)`; `inverse_transform(X)` is optional for user-side de-scaling. If provided, it is fit on training data and stored as `scaler_`.
 - `tensorboard_log_dir`: If set, logs training metrics via `SummaryWriter(log_dir=...)`. If `None`, TensorBoard logging is disabled.
 - `seed`: Seed for reproducibility.
 
