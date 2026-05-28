@@ -43,7 +43,7 @@ Starting with the conclusion and plan:
 ##### Not include things in this project.
 - Supproting `sklearn`'s model: This proposal is focusing on skpro.
 - Refactoring Factor class: This proposal is foufocusing on cpd.
-- Considering the detailed way of parameter estimate and inference: We can consider later with detailed cpd contract.
+- Considering the detailed way of inference, intervene, counterfactual : We can consider later with detailed cpd contract.
 
 ##### Alternative Solutions && Additional Solutions
 
