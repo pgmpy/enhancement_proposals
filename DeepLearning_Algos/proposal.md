@@ -56,7 +56,7 @@ pgmpy/
 **Algorithm steps:**
 1. Formulate a supervised prediction task for a target variable.
 2. Initialize an internal masked-autoencoder network (`_CASTLEModel`) that prevents any feature from causing itself.
-3. Optimize the joint objective minimizing supervised loss (MSE), data reconstruction loss, and continuous acyclicity penalty.
+3. Optimize the joint objective minimizing supervised loss (MSE), data reconstruction loss, and continuous acyclicity penalty, with optional early stopping.
 4. Calculate the weighted adjacency matrix $W$ from the input-layer weights of the internal network.
 5. Add a DAG acyclicity penalty $h(W) = \text{tr}(e^{W \odot W}) - d = 0$.
 6. Final inference zeroes out entries below a threshold to return the resulting causal DAG.
@@ -64,8 +64,10 @@ pgmpy/
 **Key design decisions:**
 - Implementation includes an internal PyTorch model `_CASTLEModel`.
 - Uses `torch.linalg.matrix_exp` to perform trace calculation for DAG constraints efficiently.
-- Internal hyperparameters are grouped into dataclasses (`RegularizationConfig`, `TrainingConfig`, `NetworkConfig`) for readability — the public API signature is flat and unchanged.
+- Internal hyperparameters are grouped into dataclasses (`RegularizationConfig`, `ModelConfig`) for readability — the public API signature is flat and unchanged.
 - Accepts a PyTorch optimizer object directly; defaults to Adam internally.
+- Accepts a user-provided scaler for input normalization (for example, `sklearn.preprocessing.StandardScaler`); applied in `CASTLE.fit` and stored as `scaler_` after fitting.
+- Logs training metrics to TensorBoard when `tensorboard_log_dir` is provided; no verbose printing.
 
 ---
 
@@ -74,16 +76,15 @@ pgmpy/
 ### `_CASTLEModel(nn.Module)` (Internal)
 PyTorch masked autoencoder for feature reconstruction, target prediction, and training.
 
-- **`__init__(num_inputs, network_cfg: NetworkConfig, train_cfg: TrainingConfig, reg_cfg: RegularizationConfig)`**: Initializes masked input layers, scalar output layers, grouped hyperparameters, and optimizer.
+- **`__init__(num_inputs, model_cfg: ModelConfig, reg_cfg: RegularizationConfig)`**: Initializes masked input layers, scalar output layers, grouped hyperparameters, and optimizer.
 - **`forward(X)`**: Returns full reconstruction (`Out`) and target prediction (`out_0`).
-- **`train(X_tensor)`**: Runs epochs (batch updates, Lagrangian multiplier adjustments) and returns the thresholded adjacency matrix (`W_final`).
+- **`train(X_tensor)`**: Runs epochs with early stopping (batch updates, Lagrangian multiplier adjustments), logs to TensorBoard if enabled, and returns the thresholded adjacency matrix (`W_final`).
 - **`get_W()`**: Computes adjacency matrix from current weights (L2 norm of column $j$ in sub-network $i$).
 
 ### Internal dataclasses
 Grouped configuration objects used by `_CASTLEModel`.
 
-- **`NetworkConfig`**: `hidden_dim`
-- **`TrainingConfig`**: `batch_size`, `max_epochs`, `optimizer`, `seed`, `verbose`
+- **`ModelConfig`**: `hidden_dim`, `batch_size`, `max_epochs`, `optimizer`, `seed`, `min_loss_improvement`, `early_stop_patience`, `tensorboard_log_dir`, `scaler`, `target_col`
 - **`RegularizationConfig`**: `dag_weight`, `sparsity_weight`, `dag_penalty`, `edge_threshold`
 
 ### `CASTLE(_BaseCausalDiscovery)` (Public API)
@@ -100,8 +101,11 @@ CASTLE(
     edge_threshold=0.3,
     target_col=None,
     max_epochs=200,
+    min_loss_improvement=1e-4,
+    early_stop_patience=10,
+    scaler=None,
+    tensorboard_log_dir=None,
     seed=None,
-    verbose=False,
 )
 ```
 
@@ -118,12 +122,14 @@ $$\min_\Theta \frac{1}{N}\|Y - [f_\Theta(\tilde{X})]_{:,1}\|^2 + \lambda \underb
 - `edge_threshold`: Edges with weight below this value are zeroed in the final DAG.
 - `target_col`: Target column name or index. Defaults to the first column when `None`.
 - `max_epochs`: Maximum number of training epochs.
+- `min_loss_improvement`: Minimum decrease in total loss per epoch to count as an improvement for early stopping.
+- `early_stop_patience`: Number of consecutive epochs without improvement before stopping early.
+- `scaler`: Optional scaler for input normalization (for example, `sklearn.preprocessing.StandardScaler`). If provided, it is fit on training data and stored as `scaler_`.
+- `tensorboard_log_dir`: If set, logs training metrics via `SummaryWriter(log_dir=...)`. If `None`, TensorBoard logging is disabled.
 - `seed`: Seed for reproducibility.
-- `verbose`: Enables training progress logging.
 
 **Methods:**
 - **`fit(X)`**: Trains the model and builds the DAG.
-- **`predict(X)`**: Predicts the target column using the learned sub-network.
 
 **Attributes set after `fit`:**
 - `n_features_in_`: Number of input features seen during fit.
@@ -131,6 +137,7 @@ $$\min_\Theta \frac{1}{N}\|Y - [f_\Theta(\tilde{X})]_{:,1}\|^2 + \lambda \underb
 - `causal_graph_`: Learned causal DAG as a `pgmpy.base.DAG`.
 - `adjacency_matrix_`: Weighted adjacency matrix as a Pandas DataFrame.
 - `model_`: Internal neural network instance used for training.
+- `scaler_`: Fitted scaler used to normalize inputs during training (when provided).
 
 ---
 
@@ -141,6 +148,7 @@ import torch
 from pgmpy.causal_discovery import CASTLE
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 df = pd.DataFrame(np.random.randn(100, 3), columns=['A', 'B', 'Target'])
 
@@ -151,10 +159,53 @@ model = CASTLE(max_epochs=200, edge_threshold=0.3, seed=42)
 opt = torch.optim.Adam(lr=1e-4, weight_decay=1e-5)
 model = CASTLE(max_epochs=200, edge_threshold=0.3, optimizer=opt, seed=42)
 
-model = CASTLE(max_epochs=200, edge_threshold=0.3, target_col="Target", seed=42)
+# User-provided scaler and early stopping defaults
+scaler = StandardScaler()
+model = CASTLE(
+    max_epochs=200,
+    edge_threshold=0.3,
+    target_col="Target",
+    scaler=scaler,
+    min_loss_improvement=1e-4,
+    early_stop_patience=10,
+    tensorboard_log_dir="runs/castle",
+    seed=42,
+)
 model.fit(df)
 dag = model.causal_graph_
-preds = model.predict(df[['A', 'B']])
+
+# User-side scaling and inverse-scaling for predictions (example)
+scaler_fitted = model.scaler_
+X_scaled = scaler_fitted.transform(df.values)
+y_pred_scaled = some_model(X_scaled)
+y_pred = scaler_fitted.inverse_transform(y_pred_scaled)
+```
+
+View logs with: `tensorboard --logdir runs/castle`
+
+TensorBoard quickstart (PyTorch):
+
+```python
+import torch
+import torchvision
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import datasets, transforms
+
+# Writer will output to ./runs/ directory by default
+writer = SummaryWriter()
+
+transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+trainset = datasets.MNIST('mnist_train', train=True, download=True, transform=transform)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True)
+model = torchvision.models.resnet50(False)
+# Have ResNet model take in grayscale rather than RGB
+model.conv1 = torch.nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+images, labels = next(iter(trainloader))
+
+grid = torchvision.utils.make_grid(images)
+writer.add_image('images', grid, 0)
+writer.add_graph(model, images)
+writer.close()
 ```
 
 ---
@@ -166,10 +217,9 @@ All tests use fixed `seed=42` and small synthetic DAGs generated via `utils.gen_
 ### 1. Basic Input / Output Tests
 
 - **Fit returns self and sets attributes**: `CASTLE.fit(df)` returns the estimator instance; `n_features_in_`, `feature_names_in_`, `causal_graph_`, `adjacency_matrix_`, and `model_` are all set after the call.
-- **Output shapes are correct**: `adjacency_matrix_` is `(d, d)`; `predict(X_test)` returns a 1-D array of length `N`; `get_W()` inside `_CASTLEModel` returns `(d, d)`.
+- **Output shapes are correct**: `adjacency_matrix_` is `(d, d)`; `get_W()` inside `_CASTLEModel` returns `(d, d)`.
 - **Target column selection**: Construct with `target_col` as a string name, as an integer index, and omitted (defaults to first column) — all three produce identical results.
 - **Invalid target raises `ValueError`**: Passing a column name not in `X` or an out-of-range integer index raises `ValueError`.
-- **Predict column alignment**: `predict` called with a DataFrame whose columns match `feature_names_in_` returns the same result as calling it with the equivalent numpy array in the same column order.
 - **DataFrame and numpy inputs**: `fit` accepts both `pd.DataFrame` and validates that non-numeric input raises.
 - **Single-column input is rejected gracefully**: A DataFrame with one column raises `ValueError` before any training begins, with a clear message.
 - **Hyperparameter edge cases do not crash**: `max_epochs=1`, `batch_size=1`, `batch_size > N`, `hidden_dim=1` — all complete without error and produce a valid DAG.
@@ -188,9 +238,10 @@ All tests use fixed `seed=42` and small synthetic DAGs generated via `utils.gen_
 ### 4. Additional Tests
 
 - **`_CASTLEModel` is independently instantiable**: The internal class can be constructed and used without going through `CASTLE.fit`, confirming the internal class separation holds at the unit level.
-- **Scaler is fit on training data only**: `scaler_.mean_` and `scaler_.scale_` match those of a separately fitted `StandardScaler` on the same training split, confirming test data has not leaked into the scaler.
+- **Scaler is fit on training data only**: When `scaler` is provided, `scaler_` matches a separately fitted scaler on the same training split, confirming test data has not leaked into the scaler.
 - **Missing `torch` raises a clean error**: Importing `CASTLE` without `torch` installed raises `ImportError` with an actionable install message, not a bare `ModuleNotFoundError`.
-- **`fit` → `predict` is stateless across calls**: Calling `predict` twice on the same input returns identical results — no stochastic behaviour during inference.
+- **Early stopping triggers as expected**: With `min_loss_improvement` set high and `early_stop_patience` small, training halts before `max_epochs` and reports the shorter epoch count.
+- **TensorBoard logging is optional**: When `tensorboard_log_dir=None`, no SummaryWriter is created; when set, a valid event file is written.
 
 ### 5. Benchmarking Tests
 
@@ -203,8 +254,7 @@ All tests use fixed `seed=42` and small synthetic DAGs generated via `utils.gen_
 - **`sparsity_weight` drives edge sparsity**: Train with high `sparsity_weight` (e.g. 50) and low (e.g. 0.1); assert that high `sparsity_weight` yields strictly fewer non-zero entries in `W_final`.
 - **Output is a valid DAG**: `nx.is_directed_acyclic_graph(causal_graph_)` is `True` after every fit, across 5 random seeds.
 - **No self-loops**: `causal_graph_` contains no edge `(v, v)` for any node `v`.
-- **Predictions are in original scale**: `predict()` applies `scaler_.inverse_transform` before returning. Assert that mean and std of `predict(X_test)` are within a reasonable range of the target column's original (unscaled) mean and std.
-- **Reproducibility**: Two `CASTLE` instances with the same `seed` and hyperparameters, fit on the same data, produce byte-identical `adjacency_matrix_` values and identical `predict` outputs.
+- **Reproducibility**: Two `CASTLE` instances with the same `seed` and hyperparameters, fit on the same data, produce byte-identical `adjacency_matrix_` values.
 
 # GraN-DAG: Implementation Details
 ---
