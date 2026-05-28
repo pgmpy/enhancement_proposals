@@ -8,13 +8,13 @@ Contributors: @daehyun99
 
 ### summary
 
-![12](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/12.excalidraw.png)
+Starting with the conclusion and plan:
 
-Starting with the conclusion:
-* Implement `_FactorMixin` and improve internal compatibility between Factor and CPD by storing `factor` and `cpd` information in `self._factors`.
-* Have `BaseFactor` inherit from `skbase.BaseEstimator` to improve compatibility with skpro models.
-* Refactoring `TabularCPD`, `LineargaussianCPD`, `FunctionalCPD`
-* Implement `HybridEstimator` for fitting with sklearn, skpro model
+1. Implement `_ParameterMixin` and improve internal compatibility between Factor and CPD by storing `factor` and `cpd` information in `self._parameters`.
+2. Implement `_BaseParameter` inherit from `skbase.BaseEstimator` to improve compatibility with skpro models.
+3. Implement `paramter/TabularCPD`, `paramter/LineargaussianCPD`, `paramter/FunctionalCPD`
+4. Add warning message in `factors/TabularCPD`, `factors/LineargaussianCPD`, `factors/FunctionalCPD`
+5. Implement `HybridEstimator` for fitting with sklearn, skpro model.
 
 ### Introduction
 
@@ -35,71 +35,79 @@ Starting with the conclusion:
 
 ##### Proposed Solution
 
-1. Consider how to store factors, CPDs, and skpro models. (Implement `_FactorMixin`) <br>
+1. Consider how to store Factors, CPDs, and skpro models. (Implement `_ParameterMixin`) <br>
 2. Externally, consider compatibility with skpro models.<br>
-3. Consider the parameter learning way. (Implement `HybridEstimator`)
+3. Internally, consider compatibility with pyro.<br>
+4. Consider the parameter learning way. (Implement `HybridEstimator`)
 
 ##### Alternative Solutions && Additional Solutions
 
 - `dag.paramters.add(variable, cpd)` (`accessor` pattern, `component` pattern)
 
-#### 1. Consider how to store Factors, CPDs, and skpro models. (Implement `_FactorMixin`)
+#### 1. Consider how to store Factors, CPDs, and skpro models. (Implement `_ParameterMixin`)
+
+![12](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/12.excalidraw.png)
+
 ```
-factor <-> CPD <-> skpro, sklearn model
+factor <-> CPD <-> skpro model
 ```
 
 * Initially, I considered having each node store distribution information, similar to how a node has its role as an attribute. This seemed appropriate for Bayesian networks.
 * However, models such as `ClusterGraph`, `JunctionTree`, and `FactorGraph` use Factors instead of CPDs.
 * A Factor is a concept that includes CPDs and represents relationships among multiple nodes. Therefore, since a single Factor can have multiple variables, I thought it would not be conceptually appropriate for a single node to “have” a Factor.
-* Therefore, I propose creating a `_FactorMixin` class.
+* Therefore, I propose creating a `_ParameterMixin` class.
 
 ```python
-class _FactorMixin:
-    """ Wrapper class """
-    self._factors = dict(frozenset: FactorObject) # key: frozenset(variables), value: FactorObject
+class _ParameterMixin:
+    """ Store class of CPD, Factor """
+    self._parameters = dict(frozenset: FactorObject) # key: frozenset(variables), value: FactorObject
 
-    def _get_factors():
+    def _get_parameters():
         ...
 
-    def _get_factor(node: Hashable):
-        return self.factor[node]
-
-    def _add_factors(factors: Object):
+    def _get_parameter(node: Hashable):
         ...
 
-class ClustorGraph(UndirectGraph, _FactorMixin):
+    def _add_parameter(node, parameter):
+        ...
+
+class ClustorGraph(UndirectGraph, _ParameterMixin):
     def get_factors():
-        return self._get_factors()
-    def get_factor(variables, factor):
-        return self._get_factor(node)
-    def add_factors(factors: list[str, object]):
-        self._add_factors(factors)
+        return self._get_parameters()
 
-class BayesianNetwork(DAG, _FactorMixin):
+    def get_factor(node):
+        return self._get_parameter(node)
+
+    def add_factor(node, factor):
+        self._add_parameters(node, factor)
+
+class BayesianNetwork(DAG, _ParameterMixin):
     def get_cpds():
-        return self._get_factors()
-    def get_cpd(variable, cpd):
-        return self._get_factor(node)
-    def add_cpds(cpds: list[str, object]):
-        self._add_factors(cpds)
+        return self._get_parameters()
+
+    def get_cpd(node):
+        return self._get_parameter(node)
+
+    def add_cpd(node, cpd):
+        self._add_parameters(node, cpd)
 
 ```
 
-* When a method for adding CPDs or Factors is executed in each model, the Factor, CPD, or skpro model class is stored in `self._factors`. This is the same as the previous approach of storing them in `self.cpds` or `self.factors` in each model.
-* The reason `self._factors` is a `dictionary` is to preserve order and provide fast lookup.
+* When a method for adding CPDs or Factors is executed in each model, the Factor, CPD, or skpro model class is stored in `self._parameters`. This is the same as the previous approach of storing them in `self.cpds` or `self.factors` in each model.
+* The reason `self._parameters` is a `dictionary` is to preserve order and provide fast lookup.
 * With this approach, users can continue to use existing APIs such as `BN.get_cpds()` and `JunctionTree.add_factors()`, while also avoiding unnecessary feature development.
 * In addition, by unifying the storage method, internal compatibility between Factors and CPDs is improved.
 
 #### 2. Externally, compatibility with skpro models should be considered.
 
-* `BaseFactor` should be inherit from `sklearn.BaseEstimator`.
+* `_BaseParameter` should be inherit from `skbase.BaseEstimator`.
 
 ![10](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/10.excalidraw.png)
 
 
 ```python
 # pgmpy/factor/
-class _BaseFactor(skbase.BaseEstimator):
+class _BaseParameter(skbase.BaseEstimator):
     def __init__():
         self.factor_ = None
         
@@ -109,7 +117,7 @@ class _BaseFactor(skbase.BaseEstimator):
     def predict_proba():
         self._predict_proba()   
 
-class TabularCPD, LinearGaussianCPD, FunctionalCPD(_BaseFactor): # TabularCPD can inherit from DiscreteFactor later.
+class TabularCPD, LinearGaussianCPD, FunctionalCPD(_BaseParameter): # TabularCPD can inherit from DiscreteFactor later.
     _tags = {...}
     def __init__(self):
         ...
@@ -134,9 +142,20 @@ class TabularCPD, LinearGaussianCPD, FunctionalCPD(_BaseFactor): # TabularCPD ca
 
 ```
 
-#### 3. Consider the parameter learning way. (Implement `HybridEstimator`)
+#### 3. Internally, consider compatibility with pyro.
+
+> We might need to temporarily remove it and come up with a way to allow users to specify pyro models.
+
+I think this approach would be preferable.
+If we use `FunctionalCPD` in a Hybrid BayesianNetwork, there should be no major difficulty in parameter_learning, even with a `pyro`-based implementation.
+However, considering compatibility and maintainability with the `inference`, `intervene`, and `counterfactual` algorithms we plan to develop later, a `pyro`-style syntax could reduce maintainability.
+
+I think `FunctionalCPD` should not be based on `pyro`. should be based on `skpro.distribution`.
+Instead, to support the future use of `pyro`’s `SVI` and `MCMC`, I suggest Implementing `SVIEstimator` and `MCMCEstimator`, and adding a `to_pyro()` method to each CPD class(`TabularCPD`, `LinearGaussianCPD`, `FunctionalCPD`).
+
+#### 4. Consider the parameter learning way. (Implement `HybridEstimator`)
 * Previously, I considered storing `estimator` information together as node attributes.
-* However, pgmpy follows a strategy-pattern-oriented approach, and `estimator` information is held by dedicated parameter learning estimators such as `DiscreteMLE`.
+* However, `estimator` information is held by dedicated parameter learning estimators such as `DiscreteMLE`.
 * Therefore, my proposal is to implement a `HybridEstimator` class and specify the learning method for each `variable` through a `config`.
 * `HybridEstimator` is responsible only for orchestrating learning based on the `config` information.
 
@@ -156,43 +175,63 @@ est.fit(model, data, est_config)
 ### Details of proposed solution
 ✨: Optional(Nice to have)
 
-#### `_FactorMixin`
+#### `_ParameterMixin`
 | Method | Input | Return |
 | - | - | - |
-| `_get_factor()` | `variable` | `factor` or `CPD`'s info |
-| `_add_factor()` | `variable`<br> `factor` | - |
-| `_remove_factor()` | `variable` | - |
-| `_get_factors()` | - | All `factor` or `CPD`'s info |
-| `_add_factors()` | `list[variable, factor]` | - |
-| `_remove_factors()` | `list[variable, factor]` | - |
+| `_get_parameter()` | `node` | `factor` or `CPD`'s info |
+| `_get_parameters()` | - | All `parameter` or `CPD`'s info |
+| `_add_parameter()` | `node`,<br> `parameter` | - |
+| `_add_parameters()` | `list[node, parameter]` | - |
+| `_remove_parameter()` | `node` | - |
+| `_remove_parameters()` | `list[node, parameter]` | - |
 
-#### `_BaseFactor`
+#### `_BaseParameter(skbase.BaseEstimator)`
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | `y: pd.DataFrame` |
-| `predict_proba()` | `X: pd.DataFrame` | `pgmpy/Distribution` |
+| `fit()` | `X: pd.DataFrame` | - |
+| `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
+| `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `from_values()` | - | - |
+| `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
-#### `TabularCPD`
+#### `TabularCPD(_BaseParameter, ClassifierMixin)`
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | `y: pd.DataFrame` |
-| `predict_proba()` | `X: pd.DataFrame` | `pgmpy/Distribution` |
+| `fit()` | `X: pd.DataFrame` | - |
+| `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
+| `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `from_values()` | - | - |
+| `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
-#### `LinearGaussianCPD`
+#### `LinearGaussianCPD(_BaseParameter, RegressorMixin)`
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | `y: pd.DataFrame` |
-| `predict_proba()` | `X: pd.DataFrame` | `pgmpy/Distribution` |
+| `fit()` | `X: pd.DataFrame` | - |
+| `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
+| `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `from_values()` | - | - |
+| `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
-#### `FunctionalCPD`
+#### `FunctionalCPD(_BaseParameter, RegressorMixin)`
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | `y: pd.DataFrame` |
-| `predict_proba()` | `X: pd.DataFrame` | `pgmpy/Distribution` |
+| `fit()` | `X: pd.DataFrame` | - |
+| `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
+| `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
+| `from_values()` | - | - |
+| `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
 #### `HybridEstimator`
 | Method | Input | Return |
@@ -245,3 +284,7 @@ infer = Inference(model)
 infer.query()
 
 ```
+
+### Potentional Next Steps
+- Implement `LikelihoodWeighting`
+- Merge several BayesianNetwork and Implement single `BayesianNetwork`
