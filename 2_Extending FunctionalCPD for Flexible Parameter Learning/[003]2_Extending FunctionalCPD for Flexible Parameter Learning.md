@@ -100,58 +100,24 @@ class BayesianNetwork(DAG, _ParameterMixin):
 
 #### 2. Externally, compatibility with skpro models should be considered.
 
-* `_BaseParameter` should be inherit from `skbase.BaseEstimator`.
+- `_BaseParameter` should be inherit from `skbase.BaseEstimator`.
+- Discrete CPD will be inherit from `sklearn.ClassiferMixin`
+- Continuous CPD will be inherit from `sklearn.RegressorMixin`
 
 ![10](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/99_Images/10.excalidraw.png)
 
-
-```python
-# pgmpy/factor/
-class _BaseParameter(skbase.BaseEstimator):
-    def __init__():
-        self.factor_ = None
-        
-    def fit():
-        self._fit()
-
-    def predict_proba():
-        self._predict_proba()   
-
-class TabularCPD, LinearGaussianCPD, FunctionalCPD(_BaseParameter): # TabularCPD can inherit from DiscreteFactor later.
-    _tags = {...}
-    def __init__(self):
-        ...
-
-    def from_values(values, evidence, ..)
-        ...
-        
-    def fit(self, X)
-        ...
-        
-    def predict_proba(self, X):
-        ...
-    
-    def predict_log_proba(self, X)
-        ...
-    
-    def sample(self, X, n_samples=None):
-        ...
-
-    def get_tag(self, name, default=None):   
-        ...
-
-```
-
 #### 3. Internally, consider compatibility with pyro.
 
-> We might need to temporarily remove it and come up with a way to allow users to specify pyro models.
+> We might need to temporarily remove it and come up with a way to allow users to specify pyro models. [Ref from HackMD Note]
 
 I think this approach would be preferable.
 If we use `FunctionalCPD` in a Hybrid BayesianNetwork, there should be no major difficulty in parameter_learning, even with a `pyro`-based implementation.
 However, considering compatibility and maintainability with the `inference`, `intervene`, and `counterfactual` algorithms we plan to develop later, a `pyro`-style syntax could reduce maintainability.
 
-I think `FunctionalCPD` should not be based on `pyro`. should be based on `skpro.distribution`.
+I think `FunctionalCPD` should not be based on `pyro`. Instead of should be based on `skpro.distribution`.
 Instead, to support the future use of `pyro`’s `SVI` and `MCMC`, I suggest Implementing `SVIEstimator` and `MCMCEstimator`, and adding a `to_pyro()` method to each CPD class(`TabularCPD`, `LinearGaussianCPD`, `FunctionalCPD`).
+
+Also, I believe that we can expand `FunctionalCPD` to `ANM`, `PNL` when based on `skpro.distribution` easily.
 
 #### 4. Consider the parameter learning way. (Implement `HybridEstimator`)
 * Previously, I considered storing `estimator` information together as node attributes.
@@ -183,7 +149,7 @@ est.fit(model, data, est_config)
 | `_add_parameter()` | `node`,<br> `parameter` | - |
 | `_add_parameters()` | `list[node, parameter]` | - |
 | `_remove_parameter()` | `node` | - |
-| `_remove_parameters()` | `list[node, parameter]` | - |
+| `_remove_parameters()` | `list[node]` | - |
 
 #### `_BaseParameter(skbase.BaseEstimator)`
 | Method | Input | Return |
@@ -193,8 +159,8 @@ est.fit(model, data, est_config)
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `from_values()` | - | - |
+| `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
+| `from_values()` | `is_fitted: bool` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
 #### `TabularCPD(_BaseParameter, ClassifierMixin)`
@@ -205,8 +171,8 @@ est.fit(model, data, est_config)
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `from_values()` | - | - |
+| `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
+| `from_values()` | `cards: list[int]`,<br>`values: np.ndarray`,<br>`state_names: dict` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
 #### `LinearGaussianCPD(_BaseParameter, RegressorMixin)`
@@ -217,8 +183,8 @@ est.fit(model, data, est_config)
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `from_values()` | - | - |
+| `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
+| `from_values()` | `beta: list[float]`,<br>`std: float`,<br>`state_names: list[str]` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
 #### `FunctionalCPD(_BaseParameter, RegressorMixin)`
@@ -229,8 +195,8 @@ est.fit(model, data, est_config)
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `sample()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
-| `from_values()` | - | - |
+| `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
+| `from_values()` | `fn` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
 #### `HybridEstimator`
@@ -239,35 +205,21 @@ est.fit(model, data, est_config)
 | `__init__()` | `config` | - |
 | `fit()` | `model`,<br>`data`<br>`config` | - |
 
-
 ### User journeys with the solution
 
-#### UseCase 1: SL -> PL
+#### UseCase 1: Hybrid Parameter Learning
 
 ```python
-from pgmpy.example_models import load_model
-
-from pgmpy.causal_discovery import PC
 from pgmpy.models import BayesianNetwork as BN
 from pgmpy.parameter_estimator import HybridEstimator
 
 from skpro.regression.bayesian import BayesianLinearRegressor
 
-alarm_model = load_model("bnlearn/alarm") # DiscreteBN
-alarm_samples = alarm_model.simulate(int(1e3))
-
-# Causal Discovery, Structural
-est1 = PC(ci_test='chi_square', variant="stable", max_cond_vars=4, return_type='dag')
-est1.fit(alarm_samples)
-
-# Analysis and Improvement of Structural Learning Results
-est.causal_graph_.to_graphviz()
-
 # Parameter Learning
 model = model(est.causal_graph_)
 
 model.add_cpd(variable ="CVP", cpd=TabularCPD())
-model.add_cpd(variable ="HYPOVOLEMIA", cpd=BayesianLinearRegressor())
+model.add_cpd(variable ="HYPOVOLEMIA", cpd=CPDAdapter(BayesianLinearRegressor()))
 model.add_cpd(variable ="LVFAILURE", cpd=TabularCPD())
 
 # Parameter Learning
