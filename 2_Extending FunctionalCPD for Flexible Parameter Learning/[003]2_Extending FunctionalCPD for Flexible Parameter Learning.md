@@ -14,7 +14,7 @@ Starting with the conclusion and plan:
 2. Implement `_BaseParameter` inherit from `skbase.BaseEstimator` to improve compatibility with skpro models.
 3. Implement `paramter/TabularCPD`, `paramter/LineargaussianCPD`, `paramter/FunctionalCPD`
 4. Add warning message in `factors/TabularCPD`, `factors/LineargaussianCPD`, `factors/FunctionalCPD`
-5. Implement `HybridEstimator` for fitting with sklearn, skpro model.
+5. Implement `HybridEstimator` for fitting with skpro model.
 
 ### Introduction
 
@@ -39,6 +39,11 @@ Starting with the conclusion and plan:
 2. Externally, consider compatibility with skpro models.<br>
 3. Internally, consider compatibility with pyro.<br>
 4. Consider the parameter learning way. (Implement `HybridEstimator`)
+
+##### Not include things in this project.
+- Supproting `sklearn`'s model: This proposal is focusing on skpro.
+- Refactoring Factor class: This proposal is foufocusing on cpd.
+- Considering the detailed way of parameter estimate and inference: We can consider later with detailed cpd contract.
 
 ##### Alternative Solutions && Additional Solutions
 
