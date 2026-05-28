@@ -203,7 +203,7 @@ est.fit(model, data, est_config)
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | `config` | - |
-| `fit()` | `model`,<br>`data`<br>`config` | - |
+| `fit()` | `model`,<br>`X: pd.DataFrame`,<br>`y: pd.DataFrame`,<br>`config: dict` | - |
 
 ### User journeys with the solution
 
@@ -218,9 +218,9 @@ from skpro.regression.bayesian import BayesianLinearRegressor
 # Parameter Learning
 model = model(est.causal_graph_)
 
-model.add_cpd(variable ="CVP", cpd=TabularCPD())
-model.add_cpd(variable ="HYPOVOLEMIA", cpd=CPDAdapter(BayesianLinearRegressor()))
-model.add_cpd(variable ="LVFAILURE", cpd=TabularCPD())
+model.add_cpd(node ="CVP", cpd=TabularCPD())
+model.add_cpd(node ="HYPOVOLEMIA", cpd=CPDAdapter(BayesianLinearRegressor()))
+model.add_cpd(node ="LVFAILURE", cpd=TabularCPD())
 
 # Parameter Learning
 est_config = {
@@ -229,7 +229,7 @@ est_config = {
     "LVFAILURE": "DiscreteMLE"
 }
 est2 = HybridEstimator()
-est2.fit(model, alarm_samples, est_config)
+est2.fit(model, X, y, est_config)
 
 # Inference
 infer = Inference(model)
