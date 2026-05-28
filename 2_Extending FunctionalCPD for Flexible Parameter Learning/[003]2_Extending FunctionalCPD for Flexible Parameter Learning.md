@@ -110,14 +110,14 @@ class BayesianNetwork(DAG, _ParameterMixin):
 
 > We might need to temporarily remove it and come up with a way to allow users to specify pyro models. [Ref from HackMD Note]
 
-I think this approach would be preferable.
-If we use `FunctionalCPD` in a Hybrid BayesianNetwork, there should be no major difficulty in parameter_learning, even with a `pyro`-based implementation.
-However, considering compatibility and maintainability with the `inference`, `intervene`, and `counterfactual` algorithms we plan to develop later, a `pyro`-style syntax could reduce maintainability.
+I think this approach would be preferable.<br>
+If we use `FunctionalCPD` in a Hybrid BayesianNetwork, there should be no major difficulty in parameter_learning, even with a `pyro`-based implementation.<br>
+However, considering compatibility and maintainability with the `inference`, `intervene`, and `counterfactual` algorithms we plan to develop later, a `pyro`-style syntax could reduce maintainability.<br>
 
-I think `FunctionalCPD` should not be based on `pyro`. Instead of should be based on `skpro.distribution`.
-Instead, to support the future use of `pyro`’s `SVI` and `MCMC`, I suggest Implementing `SVIEstimator` and `MCMCEstimator`, and adding a `to_pyro()` method to each CPD class(`TabularCPD`, `LinearGaussianCPD`, `FunctionalCPD`).
+I think `FunctionalCPD` should not be based on `pyro`. Instead of should be based on `skpro.distribution`.<br>
+Instead, to support the future use of `pyro`’s `SVI` and `MCMC`, I suggest Implementing `SVIEstimator` and `MCMCEstimator`, and adding a `to_pyro()` method to each CPD class(`TabularCPD`, `LinearGaussianCPD`, `FunctionalCPD`).<br>
 
-Also, I believe that we can expand `FunctionalCPD` to `ANM`, `PNL` when based on `skpro.distribution` easily.
+Also, I believe that we can expand `FunctionalCPD` to `ANM`, `PNL` when based on `skpro.distribution` easily.<br>
 
 #### 4. Consider the parameter learning way. (Implement `HybridEstimator`)
 * Previously, I considered storing `estimator` information together as node attributes.
