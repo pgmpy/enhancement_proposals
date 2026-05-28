@@ -155,7 +155,7 @@ est.fit(model, data, est_config)
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | - |
+| `fit()` | `X: pd.DataFrame`, <br>`y: pd.DataFrame` | - |
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
@@ -167,7 +167,7 @@ est.fit(model, data, est_config)
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | - |
+| `fit()` | `X: pd.DataFrame`, <br>`y: pd.DataFrame` | - |
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
@@ -179,7 +179,7 @@ est.fit(model, data, est_config)
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | - |
+| `fit()` | `X: pd.DataFrame`, <br>`y: pd.DataFrame` | - |
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
@@ -191,7 +191,7 @@ est.fit(model, data, est_config)
 | Method | Input | Return |
 | - | - | - |
 | `__init__()` | - | - |
-| `fit()` | `X: pd.DataFrame` | - |
+| `fit()` | `X: pd.DataFrame`, <br>`y: pd.DataFrame` | - |
 | `predict()` | `X: pd.DataFrame` | `y: np.ndarray` |
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
