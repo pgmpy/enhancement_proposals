@@ -94,9 +94,9 @@ Rather than a single struct with boolean flags (causaleffect's approach), we pre
  
 A new base class is added to `pgmpy/identification/base.py`, directly below `_BaseIdentification` for all formula-returning identification methods:
 
-<!-- ```
-# pgmpy/identification/base.py
- 
+#### pgmpy/identification/base.py
+
+``` python
 class _BaseFormulaIdentification:
     """
     Base class for identification methods that return symbolic probability
@@ -106,54 +106,55 @@ class _BaseFormulaIdentification:
     and return a ProbabilityExpression, or return False and store the
     witness subgraph in self.hedge_ when identification is not possible.
     """
- 
-    # Tuple of graph types this algorithm supports.
+
+    # Subclasses set this to restrict which graph types are accepted.
+    # Used in isinstance() check inside _validate_query().
     supported_graph_types = ()
- 
+
     def _validate_query(self, causal_graph):
         if not isinstance(causal_graph, self.supported_graph_types):
             raise ValueError(
                 f"causal_graph must be an instance of "
-                f"{self.supported_graph_types} for this method."
+                f"{self.supported_graph_types} for this method. "
+                f"Got {type(causal_graph).__name__}."
             )
         if not causal_graph.get_role("exposures"):
-            raise ValueError("causal_graph must have 'exposures' role assigned.")
+            raise ValueError(
+                "causal_graph must have 'exposures' role assigned."
+            )
         if not causal_graph.get_role("outcomes"):
-            raise ValueError("causal_graph must have 'outcomes' role assigned.")
- 
+            raise ValueError(
+                "causal_graph must have 'outcomes' role assigned."
+            )
+
     def identify(self, causal_graph):
         """
         Run the identification algorithm on a causal graph.
- 
         Parameters
         ----------
         causal_graph : ADMG or DAG
-            The causal graph with exposures and outcomes roles assigned.
- 
+            The causal graph with at minimum 'exposures' and 'outcomes'
+            roles assigned.
+
         Returns
         -------
         ProbabilityExpression
-            Symbolic formula for the identified causal effect.
-
-        If the causal effect is not identifiable, returns False and stores
-        the witness subgraph in self.hedge_.
+            The symbolic formula for the identified causal effect.
+            Access the expression tree via result.root.
+        False
+            If the causal effect is not identifiable. The witness
+            subgraph is stored in self.hedge_.
         """
         self._validate_query(causal_graph)
         return self._identify(causal_graph)
- 
+
     def _identify(self, causal_graph):
+        """Override in subclasses to implement the algorithm."""
         raise NotImplementedError
- 
-    def validate(self, causal_graph):
-        """
-        Check whether the given causal graph produces an identifiable effect.
-        
-        """
-        return self.identify(causal_graph) is not False
- 
+
     def __call__(self, causal_graph):
         return self.identify(causal_graph)
-``` -->
+```
 
 #### `ProbabilityExpression` - Base Class and Expression Hierarchy
  
