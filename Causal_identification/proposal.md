@@ -156,96 +156,257 @@ class _BaseFormulaIdentification:
         return self.identify(causal_graph)
 ```
 
-#### `ProbabilityExpression` - Base Class and Expression Hierarchy
+#### `ProbabilityExpression` - Container and Expression Tree
  
-The ID algorithms output mathematical formulas. We need Python objects to hold, render, and evaluate these formulas. `ProbabilityExpression` is the base for all formula nodes.
- 
-Each formula is a tree built from four node types:
- 
-- **`Prob(variables, do, cond)`** - an atomic probability term such as `P(Y | X)` or `P(Y | do(X))`. `variables` is the set of random variables whose probability is being expressed. `do` is the set of variables being intervened on via the do-operator (forcing them to a value). `cond` is the set of variables being passively conditioned on (observed). Both `do` and `cond` are sets of variable names at the symbolic level — concrete values are only needed at `evaluate()` time.
-- **`Marginal(expr, summed_vars)`** - represents $\sum_{S} \text{expr}$, summing out the variables in `summed_vars`.
-- **`Product(factors)`** - represents $\text{expr}_1 \cdot \text{expr}_2 \cdot \ldots$
-- **`Quotient(numerator, denominator)`** - represents `numerator / denominator`, used by IDC.
+The ID algorithms output mathematical formulas that we represent as a **tree**. The tree is built from four node types: `Prob`, `Marginal`, `Product`, and `Division`. These nodes are **not** `ProbabilityExpression` instances they are the internal building blocks of the tree, and they all inherit from a private base class `_Node`.
+
+`ProbabilityExpression` is the **container** returned by `identify()`. It holds a single attribute `root` pointing to the root node of the expression tree, and provides the public API (`to_latex()`, `evaluate()`, `simplify()`) by delegating to the root. The node types in the tree delegate rendering and evaluation recursively through `children`.
+
+Every tree node shares the same traversal interface via `_Node`: `node.node_type` identifies the node type, and `node.children` gives its sub-nodes. Leaf nodes (`Prob`) always have `children = []`.
 
 ```python
 # pgmpy/identification/probability_expressions.py
- 
-class ProbabilityExpression:
-    """Base class for all symbolic probability expression nodes."""
- 
+
+
+class _Node:
+    """
+    Private base class for all expression tree nodes.
+
+    Not part of the public API. Provides the shared structure that
+    makes uniform tree traversal possible: every node has
+    node_type (str), children (list), to_latex(), and __repr__().
+
+    Subclasses: Prob, Marginal, Product, Division.
+    """
+
+    node_type: str = ""
+    children: list  # list[_Node]
+
     def to_latex(self):
         raise NotImplementedError
- 
+
     def __repr__(self):
         raise NotImplementedError
- 
-    def simplify(self):
-        """
-        Return a simplified form of the expression. Default: identity.
-        Concrete simplification rules (e.g. collapsing Marginal with empty
-        summed_vars, cancelling common factors in Quotient) are added as
-        the algorithms are implemented.
-        """
-        return self
- 
-    def evaluate(self, data):
-        """
-        Numerically evaluate this expression against observed tabular data.
-        Bridges symbolic identification and numeric estimation.
- 
-        Parameters
-        ----------
-        data
-            Observed data. Column names must match variable names.
-        """
-        raise NotImplementedError
- 
- 
-class Prob(ProbabilityExpression):
+
+
+class Prob(_Node):
     """
-    Atomic probability term: P(variables | do(do_vars), cond_vars).
- 
+    Leaf node of the expression tree.
+
+    Represents an atomic probability term
+    $P(\text{variables} \mid do(\text{do}), \text{cond})$,
+    with an optional marginalisation over ``sumset``.
+
     Parameters
     ----------
-    variables : frozenset
-        Variables whose joint probability is expressed, e.g. frozenset({"Y"}).
-    do : frozenset
-        Variables intervened on via do-operator, e.g. frozenset({"X"}) for
-        P(Y | do(X)). Empty frozenset means no intervention.
-    cond : frozenset
-        Variables passively conditioned on, e.g. frozenset({"Z"}) for
-        P(Y | Z). Empty frozenset means no conditioning.
+    variables : frozenset of str
+        The random variables whose probability is expressed.
+        For example, ``frozenset({"Y"})`` for $P(Y \mid \ldots)$.
+
+    do : frozenset of str
+        Variables being intervened on via the do-operator.
+        For example, ``frozenset({"X"})`` for $P(Y \mid do(X))$.
+        Pass ``frozenset()`` when there is no intervention.
+
+    cond : frozenset of str
+        Variables being passively conditioned on.
+        For example, ``frozenset({"Z"})`` for $P(Y \mid Z)$.
+        Pass ``frozenset()`` when there is no conditioning.
+
+    sumset : frozenset of str
+        Variables being marginalised out directly at this node.
+        For example, ``frozenset({"Z"})`` for
+        $\sum_{Z} P(Y, Z)$.
+        Pass ``frozenset()`` when there is no marginalisation at
+        this node.
+
+    Notes
+    -----
+    ``children`` is always ``[]`` for ``Prob`` — it is a leaf node.
     """
-    def __init__(self, variables, do=frozenset(), cond=frozenset()):
-        self.variables = variables
-        self.do = do
-        self.cond = cond
- 
+
+    node_type = "prob"
+
+    def __init__(
+        self,
+        variables,           # frozenset of str
+        do=frozenset(),      # frozenset of str
+        cond=frozenset(),    # frozenset of str
+        sumset=frozenset(),  # frozenset of str
+    ):
+        self.variables = frozenset(variables)
+        self.do = frozenset(do)
+        self.cond = frozenset(cond)
+        self.sumset = frozenset(sumset)
+        self.children = []   # Prob is always a leaf
+
     def to_latex(self): ...
     def __repr__(self): ...
- 
- 
-class Marginal(ProbabilityExpression):
-    """Σ_{summed_vars} expr"""
-    def __init__(self, expr, summed_vars): ...
+
+
+class Marginal(_Node):
+    """
+    Internal node representing $\sum_{\text{sumset}} \text{children}[0]$.
+
+    Has exactly one child.
+
+    Parameters
+    ----------
+    child : Prob or Marginal or Product or Division
+        The expression being marginalised. Stored as ``children[0]``.
+
+    sumset : frozenset of str
+        The variables being summed out.
+        For example, ``frozenset({"Z"})`` for $\sum_{Z}$.
+    """
+
+    node_type = "sum"
+
+    def __init__(
+        self,
+        child,       # Prob | Marginal | Product | Division
+        sumset,      # frozenset of str
+    ):
+        self.sumset = frozenset(sumset)
+        self.children = [child]   # exactly one child
+
     def to_latex(self): ...
     def __repr__(self): ...
- 
- 
-class Product(ProbabilityExpression):
-    """expr_1 · expr_2 · ..."""
-    def __init__(self, factors): ...
+
+
+class Product(_Node):
+    """
+    Internal node representing
+    $\text{children}[0] \cdot \text{children}[1] \cdot \ldots$
+
+    Has two or more children.
+
+    Parameters
+    ----------
+    factors : list of (Prob or Marginal or Product or Division)
+        The expressions being multiplied. Must have at least two
+        elements. Stored as ``children``.
+    """
+
+    node_type = "product"
+
+    def __init__(
+        self,
+        factors,     # list[Prob | Marginal | Product | Division], len >= 2
+    ):
+        self.children = list(factors)
+
     def to_latex(self): ...
     def __repr__(self): ...
- 
- 
-class Quotient(ProbabilityExpression):
-    """numerator / denominator"""
-    def __init__(self, numerator, denominator): ...
+
+
+class Division(_Node):
+    """
+    Internal node representing
+    $\dfrac{\text{children}[0]}{\text{children}[1]}$.
+
+    Has exactly two children: numerator at index 0,
+    denominator at index 1.
+
+    Parameters
+    ----------
+    numerator : Prob or Marginal or Product or Division
+        The numerator expression. Stored as ``children[0]``.
+
+    denominator : Prob or Marginal or Product or Division
+        The denominator expression. Stored as ``children[1]``.
+    """
+
+    node_type = "division"
+
+    def __init__(
+        self,
+        numerator,    # Prob | Marginal | Product | Division
+        denominator,  # Prob | Marginal | Product | Division
+    ):
+        self.children = [numerator, denominator]
+
     def to_latex(self): ...
     def __repr__(self): ...
- 
- 
+
+
+class ProbabilityExpression:
+    """
+    Container for the output of a causal identification algorithm.
+
+    ``ProbabilityExpression`` is NOT a tree node. It is the public
+    API object returned by ``identify()``. It holds a single
+    ``root`` attribute pointing to the root of the expression tree,
+    and delegates ``to_latex()``, ``evaluate()``, and ``simplify()``
+    to that root.
+
+    The tree itself is composed of ``Prob``, ``Marginal``,
+    ``Product``, and ``Division`` nodes (all subclasses of ``_Node``).
+    Traverse the tree via ``expr.root.children`` recursively.
+
+    Parameters
+    ----------
+    root : Prob or Marginal or Product or Division
+        The root node of the expression tree.
+
+    Attributes
+    ----------
+    root : Prob or Marginal or Product or Division
+        The root node. Access sub-nodes via ``root.children``.
+
+    Examples
+    --------
+    >>> expr.root.node_type
+    'sum'
+    >>> expr.root.children[0].node_type
+    'product'
+    >>> def print_tree(node, depth=0):
+    ...     print("  " * depth + repr(node))
+    ...     for child in node.children:
+    ...         print_tree(child, depth + 1)
+    >>> print_tree(expr.root)
+    """
+
+    def __init__(
+        self,
+        root,  # Prob | Marginal | Product | Division
+    ):
+        self.root = root
+
+    def to_latex(self):
+        """Return a LaTeX string for the full expression."""
+        return self.root.to_latex()
+
+    def __repr__(self):
+        return repr(self.root)
+
+    def simplify(self):
+        """
+        Return a simplified ``ProbabilityExpression``.
+
+        Default: identity. Concrete rules — such as collapsing a
+        ``Marginal`` with an empty ``sumset``, or cancelling common
+        factors in a ``Division`` — are added during implementation
+        alongside each algorithm.
+        """
+        return ProbabilityExpression(root=self.root)
+
+    def evaluate(self, data):
+        """
+        Numerically evaluate the expression against observed data.
+
+        Parameters
+        ----------
+        data : pd.DataFrame
+            Observed data. Column names must match the variable names
+            used in the expression tree.
+
+        Returns
+        -------
+        float or np.ndarray
+            Numeric estimate of the causal effect.
+        """
+        raise NotImplementedError
 ```
  
 The frontdoor formula, as a `ProbabilityExpression` tree, illustrates how the pieces compose:
@@ -270,6 +431,7 @@ expr = Marginal(
 print(expr.to_latex())
 # \sum_{M} \left[ P(M \mid X) \cdot \sum_{X} \left[ P(Y \mid M, X) P(X) \right] \right]
 ```
+![Expression Tree](images/expression_tree.png)
  
 #### ID and IDC - Complete Identification of P(y | do(x)) and P(y | do(x), z)
 
