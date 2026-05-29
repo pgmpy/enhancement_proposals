@@ -105,7 +105,7 @@ CASTLE(
     early_stop_patience=10,
     scaler=None,
     tensorboard_log_dir=None,
-    seed=None,
+    seed=42,
 )
 ```
 
@@ -183,31 +183,6 @@ y_pred = scaler_fitted.inverse_transform(y_pred_scaled)
 
 View logs with: `tensorboard --logdir runs/castle`
 
-TensorBoard quickstart (PyTorch):
-
-```python
-import torch
-import torchvision
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms
-
-# Writer will output to ./runs/ directory by default
-writer = SummaryWriter()
-
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-trainset = datasets.MNIST('mnist_train', train=True, download=True, transform=transform)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True)
-model = torchvision.models.resnet50(False)
-# Have ResNet model take in grayscale rather than RGB
-model.conv1 = torch.nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-images, labels = next(iter(trainloader))
-
-grid = torchvision.utils.make_grid(images)
-writer.add_image('images', grid, 0)
-writer.add_graph(model, images)
-writer.close()
-```
-
 ---
 
 ## Test Plan
@@ -239,6 +214,7 @@ All tests use fixed `seed=42` and small synthetic DAGs generated via `utils.gen_
 
 - **`_CASTLEModel` is independently instantiable**: The internal class can be constructed and used without going through `CASTLE.fit`, confirming the internal class separation holds at the unit level.
 - **Scaler is fit on training data only**: When `scaler` is provided, `scaler_` matches a separately fitted scaler on the same training split, confirming test data has not leaked into the scaler.
+- **Scaler interface validation**: Passing a scaler without `fit` or `transform` raises a clear error; a valid scaler (e.g., `StandardScaler`) works end-to-end.
 - **Missing `torch` raises a clean error**: Importing `CASTLE` without `torch` installed raises `ImportError` with an actionable install message, not a bare `ModuleNotFoundError`.
 - **Early stopping triggers as expected**: With `min_loss_improvement` set high and `early_stop_patience` small, training halts before `max_epochs` and reports the shorter epoch count.
 - **TensorBoard logging is optional**: When `tensorboard_log_dir=None`, no SummaryWriter is created; when set, a valid event file is written.
