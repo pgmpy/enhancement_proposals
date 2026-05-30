@@ -31,7 +31,10 @@ This project proposes extending pgmpy's identification capabilities with **formu
 
 The project has two main components.
 
-**Component 1: `ProbabilityExpression`** - a symbolic expression hierarchy placed in `pgmpy/identification/probability_expressions.py`, representing the closed-form formulas output by identification algorithms. It supports pretty-printing (LaTeX) and numeric evaluation against observed data. This class and its subclasses are pure data containers - they hold and render formula trees.
+**Component 1: `ProbabilityExpression` and `_Node` subclasses** — placed in `pgmpy/identification/probability_expressions.py`. This module defines:
+- `_Node`: a private base class shared by all expression tree nodes. Every node carries `node_type`, `children`, `to_latex()`, and `__repr__()`.
+- `Prob`, `Marginal`, `Product`, `Division`: the four node types that make up the tree. These are the *only* things that can appear as nodes in the tree.
+- `ProbabilityExpression`: a container that is returned by `identify()`. It holds a single `root` attribute pointing to the root `_Node`, and exposes `to_latex()`, `evaluate()`, and `simplify()` as the public API. It is not a tree node and never appears as a child in the tree.
  
 **Component 2: A new base class `_BaseFormulaIdentification`** added to `pgmpy/identification/base.py`, alongside the existing `_BaseIdentification`, which will be renamed to `_BaseGraphicalIdentification` for clarity. This new base class defines the formula-returning identification methods: `identify()` takes a causal graph and returns a `ProbabilityExpression`, or returns `False` when identification fails (storing the witness subgraph in `self.hedge_`). The four algorithms `ID`, `IDC`, `IDStar`, and `SigmaID` inherit from this base.
 
@@ -167,6 +170,7 @@ Every tree node shares the same traversal interface via `_Node`: `node.node_type
 ```python
 # pgmpy/identification/probability_expressions.py
 
+from abc import abstractmethod
 
 class _Node:
     """
@@ -179,12 +183,16 @@ class _Node:
     Subclasses: Prob, Marginal, Product, Division.
     """
 
-    node_type: str = ""
-    children: list  # list[_Node]
+    node_type = ""
+    # Children must be exactly one of the four concrete node types:
+    # Prob, Marginal, Product, or Division.
+    children = []
 
+    @abstractmethod
     def to_latex(self):
         raise NotImplementedError
 
+    @abstractmethod
     def __repr__(self):
         raise NotImplementedError
 
@@ -246,7 +254,7 @@ class Prob(_Node):
 
 class Marginal(_Node):
     """
-    Internal node representing $\sum_{\text{sumset}} \text{children}[0]$.
+    Internal node representing sum_{sumset} children[0].
 
     Has exactly one child.
 
@@ -290,10 +298,11 @@ class Product(_Node):
 
     node_type = "product"
 
-    def __init__(
-        self,
-        factors,     # list[Prob | Marginal | Product | Division], len >= 2
-    ):
+    def __init__(self, factors):
+        # every element of factors must be one of:
+        # Prob, Marginal, Product, Division
+        if len(factors) < 2:
+            raise ValueError("Product requires at least two factors.")
         self.children = list(factors)
 
     def to_latex(self): ...
@@ -302,8 +311,7 @@ class Product(_Node):
 
 class Division(_Node):
     """
-    Internal node representing
-    $\dfrac{\text{children}[0]}{\text{children}[1]}$.
+    Internal node representing children[0] / children[1].
 
     Has exactly two children: numerator at index 0,
     denominator at index 1.
@@ -335,10 +343,10 @@ class ProbabilityExpression:
     Container for the output of a causal identification algorithm.
 
     ``ProbabilityExpression`` is NOT a tree node. It is the public
-    API object returned by ``identify()``. It holds a single
-    ``root`` attribute pointing to the root of the expression tree,
-    and delegates ``to_latex()``, ``evaluate()``, and ``simplify()``
-    to that root.
+    API object returned by ``identify()``. It is the object returned by identify().
+    It holds a single root attribute pointing to the root _Node of
+    the expression tree, and delegates to_latex(), evaluate(), and
+    simplify() to that root.
 
     The tree itself is composed of ``Prob``, ``Marginal``,
     ``Product``, and ``Division`` nodes (all subclasses of ``_Node``).
@@ -384,9 +392,9 @@ class ProbabilityExpression:
         """
         Return a simplified ``ProbabilityExpression``.
 
-        Default: identity. Concrete rules — such as collapsing a
+        Default: identity. rules such as collapsing a
         ``Marginal`` with an empty ``sumset``, or cancelling common
-        factors in a ``Division`` — are added during implementation
+        factors in a ``Division`` are added during implementation
         alongside each algorithm.
         """
         return ProbabilityExpression(root=self.root)
@@ -467,7 +475,10 @@ class ID(_BaseFormulaIdentification):
         y = frozenset(causal_graph.get_role("outcomes"))
         x = frozenset(causal_graph.get_role("exposures"))
         P = Prob(frozenset(causal_graph.nodes()))
-        return _id_recursive(y, x, P, causal_graph)
+        result = _id_recursive(y, x, P, causal_graph)
+        if result is False:
+            return False
+        return ProbabilityExpression(root=result)
 ```
  
 The core recursion lives in a standalone module-level function `_id_recursive(y, x, P, G)`. It is not a method on `ID` because the recursion calls itself on internal subgraphs that have no role assignments, so the class-level validation would break it.
@@ -511,15 +522,18 @@ class IDC(_BaseFormulaIdentification):
         y = frozenset(causal_graph.get_role("outcomes"))
         x = frozenset(causal_graph.get_role("exposures"))
         z = frozenset(causal_graph.get_role("conditioning"))
- 
+
         G_bar_x = causal_graph.do(x)
         if G_bar_x.is_mseparated(y, x, conditional_set=z):
-            return Prob(y, cond=x | z)
- 
+            return ProbabilityExpression(root=Prob(y, cond=x | z))
+
         P = Prob(frozenset(causal_graph.nodes()))
-        return Quotient(
-            _id_recursive(y | z, x, P, causal_graph),
-            _id_recursive(z,     x, P, causal_graph),
+        numerator = _id_recursive(y | z, x, P, causal_graph)
+        denominator = _id_recursive(z, x, P, causal_graph)
+        if numerator is False or denominator is False:
+            return False
+        return ProbabilityExpression(
+            root=Division(numerator, denominator)
         )
 ```
  
@@ -554,8 +568,11 @@ class IDStar(_BaseFormulaIdentification):
  
     def _identify(self, causal_graph):
         twin_graph = self._construct_twin_network(causal_graph)
-        return _id_star_recursive(causal_graph, twin_graph,
-                                  self.counterfactual_query)
+        result = _id_star_recursive(causal_graph, twin_graph,
+                                    self.counterfactual_query)
+        if result is False:
+            return False
+        return ProbabilityExpression(root=result)
 ```
  
 #### `SigmaID` - Identification from Multiple Data Sources
@@ -608,17 +625,18 @@ pgmpy/
 
 ## Testing Plan
 
-The testing plan is split into three layers so each piece can be checked on its own before the pieces are combined.
 
-### Layer 1: `ProbabilityExpression` unit tests
+#### `ProbabilityExpression` unit tests
 
-These tests focus on the expression tree only. They should not touch any graph code. The goal is to verify that the basic building blocks behave like a clean, predictable data structure.
+These tests focus on the expression tree only and should not touch any graph code.
+ 
+- Each node type constructs correctly and `children` has the right length: `Prob` gives `[]`, `Marginal` gives one child, `Product` gives two or more,`Division` gives exactly two.
+- `ProbabilityExpression(root=node)` raises `TypeError` when passed anything that is not a `_Node` subclass.
+- `Product` raises `ValueError` when fewer than two factors are passed.
+- `node_type` is correct for each class (`"prob"`, `"sum"`, `"product"`, `"division"`).
+- A frontdoor expression is constructed manually and `to_latex()` is checked against the known LaTeX string — this is the main rendering regression test.
 
-- Check that `Prob`, `Marginal`, `Product`, and `Quotient` can be constructed with the expected children and stored arguments.
-- Verify the tree shape is consistent across all node types, so traversal code can treat them uniformly.
-- Use a frontdoor-style expression as a rendering regression test, since it exercises `Prob`, `Marginal`, and `Product` in one example.
-
-### Layer 2: ID and IDC integration tests
+#### ID and IDC tests
 
 These tests should use canonical graphs from the literature and check the full identification flow end to end.
 
@@ -628,15 +646,13 @@ These tests should use canonical graphs from the literature and check the full i
 - A clearly non-identifiable graph should return `False` and leave a witness graph in `self.hedge_`.
 - IDC should be tested with a case where the conditional query turns into a quotient of two ID calls.
 
-### Layer 3: Cross-validation against reference implementations
+#### Cross-validation against reference implementations
 
 For graphs where `causaleffect` produces a formula, the returned expression should match our tree structure and symbolic content. Exact ordering inside sets does not matter, but the node types and recursive layout should line up.
 
 - Add a small helper for structural equivalence checks.
 - Parametrize tests using examples from Tikka and Karvanen (2017), especially the worked cases in Section 5.
 - Compare the LaTeX output as a secondary check when a reference formula is available.
-
-Together, these layers cover the expression container, the algorithmic core, and the compatibility surface with existing references.
 
 ## User Journeys with the Solution
 
