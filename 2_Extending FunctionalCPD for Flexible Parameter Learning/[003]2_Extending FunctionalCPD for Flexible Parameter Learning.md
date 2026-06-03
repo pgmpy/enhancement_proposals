@@ -256,5 +256,6 @@ infer.query()
 
 ### Potentional Next Steps
 - Implement `LikelihoodWeighting` for Inference with Hybrid data.
-- Merge several BayesianNetwork and Implement single `BayesianNetwork`
-- Implement SCM(Structure Causal Model) and refactor BN(Bayesian Network) to can not calculate intervene.
+- Merge several BayesianNetwork(`FunctionalBN`, `DiscreteBN`, ...) and Implement single `BayesianNetwork`
+- Implement SCM(Structure Causal Model) or GCM(Graphical Causal Model) and refactor BN(Bayesian Network) to can not calculate intervene.
+- Implement `QueryResult` dataclass
