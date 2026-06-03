@@ -76,25 +76,37 @@ class _ParameterMixin:
     def _add_parameter(node, parameter):
         ...
 
-class ClustorGraph(UndirectGraph, _ParameterMixin):
+class _FactorMixin(_ParameterMixin):
     def get_factors():
+        """Docs"""
         return self._get_parameters()
 
     def get_factor(node):
+        """Docs"""
         return self._get_parameter(node)
 
     def add_factor(node, factor):
+        """Docs"""
         self._add_parameters(node, factor)
 
-class BayesianNetwork(DAG, _ParameterMixin):
+class _CPDMixin(DAG, _ParameterMixin):
     def get_cpds():
+        """Docs"""
         return self._get_parameters()
 
     def get_cpd(node):
+        """Docs"""
         return self._get_parameter(node)
 
     def add_cpd(node, cpd):
+        """Docs"""
         self._add_parameters(node, cpd)
+
+class ClustorGraph(UndirectGraph, _FactorMixin):
+    ...
+
+class BayesianNetwork(DAG, _CPDMixin):
+    ...
 
 ```
 
