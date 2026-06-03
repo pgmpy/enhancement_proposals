@@ -281,7 +281,7 @@ infer.query()
 
 ```
 
-### UseCase 2: 
+#### UseCase 2: Prototype of fitted FunctionalCPD
 
 ```py
 # cpd_A -> cpd_C
@@ -354,6 +354,82 @@ bn.add_cpd("C", cpd_C)
 
 infer = Inference()
 infer.query()
+```
+
+#### UseCase 3: Prototype of `FunctionalCPD`'s fitting logic.
+```py
+# Define custom function
+def custom_fn(X, model1, model2, values, dist, noise):
+    # custom_GAM = Beta + 0.5 * skpro.MDN() + 0.6 * skpro.NGBoostRegressor()
+    Beta = 0.2
+    mdn = model1
+    ngb = model2
+
+    mu1 = mdn.predict(X["A"])
+    mu2 = ngb.predict(X["B"])
+    mu = Beta + 0.5 * mu1 + 0.6 * mu2
+    return dist(mu) + noise
+
+cpd = FunctionalCPD()
+
+cpd.from_values(    
+    is_fitted=False,
+    fn = partial(
+        custom_fn,
+        model1=skpro.MDN(),
+        model2=skpro.NGBoostRegressor(),
+        dist=skpro.distribution.Normal,
+        noise=skpro.distribution.Normal(0, 1),
+    )
+)
+
+model.add_cpd(node ="LVFAILURE", cpd=cpd)
+
+# Define custom function's fitting logic
+def custom_fn_fitting(X):
+    model1 = skpro.MDN()
+    model2 = skpro.NGBoostRegressor()
+    
+    pred1 = np.zeros(len(y))
+    pred2 = np.zeros(len(y))
+    
+    for _ in range(10):
+        target1 = (y - beta - weight2 * pred2) / weight1
+        model1.fit(X["A"], target1)
+        pred1 = model1.predict(X["A"])
+        
+        target2 = (y - beta - weight1 * pred1) / weight2
+        model2.fit(X["B"], target2)
+        pred2 = model2.predict(X["B"])
+        
+    fitted_fn = partial(
+        custom_fn,
+        model1=model1,
+        model2=model2,
+        dist=skpro.distribution.Normal,
+        noise=skpro.distribution.Normal(0, 1)
+    )
+    
+    fitted_cpd = FunctionalCPD(
+        variable="LVFAILURE",
+        parents=list(X.columns)
+    )
+    fitted_cpd.from_values(
+        is_fitted=True,
+        fn=fitted_fn
+    )
+    
+    return fitted_cpd
+
+
+est_config = {
+    "CVP": "DiscreteMLE",
+    "HYPOVOLEMIA": "auto",
+    "LVFAILURE": custom_fn_fitting,
+}
+est2 = HybridEstimator()
+est2.fit(model, X, y, est_config)
+
 ```
 
 ### Requirement and Contract
