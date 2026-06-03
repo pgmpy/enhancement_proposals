@@ -196,8 +196,9 @@ est.fit(model, data, est_config)
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
-| `from_values()` | `cards: list[int]`,<br>`values: np.ndarray`,<br>`state_names: dict` | - |
+| `from_values()` | `values: np.ndarray()`,<br>`state_names: dict`,<br>`is_fitted: bool`,<br>`cards: list[variable, evidence1, evidence2, ...]` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
+| ✨`to_pyro()` | - | `torch.tensor` |
 
 - `Attributes`:
     - `_tags: dict`
@@ -212,8 +213,13 @@ est.fit(model, data, est_config)
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
-| `from_values()` | `beta: list[float]`,<br>`std: float`,<br>`state_names: list[str]` | - |
+| `from_values()` | `values: np.ndarray(std, betae1, betae2, ...)`,<br>`state_names: list[str]`,<br>`is_fitted: bool` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
+| ✨`to_pyro()` | - | `torch.tensor` |
+
+- `Attributes`:
+    - `_tags: dict`
+    - `_is_fitted: bool`
 
 #### `FunctionalCPD(_BaseParameter, RegressorMixin)`
 | Method | Input | Return |
@@ -224,8 +230,14 @@ est.fit(model, data, est_config)
 | `predict_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `predict_log_proba()` | `X: pd.DataFrame` | `y: list[np.ndarray]` |
 | `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
-| `from_values()` | `fn` | - |
+| `from_values()` | `values: np.ndarray`,<br>`state_names: dict`,<br>`is_fitted: bool`,<br>`fn`,<br>`dist: skpro.dist`,<br>`noise: skpro.dist` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
+| ✨`to_pyro()` | - | `torch.tensor` |
+
+- `Attributes`:
+    - `_tags: dict`
+    - `_is_fitted: bool`
+
 
 #### `HybridEstimator`
 | Method | Input | Return |
@@ -269,6 +281,81 @@ infer.query()
 
 ```
 
+### UseCase 2: 
+
+```py
+# cpd_A -> cpd_C
+# cpd_B -> cpd_C
+
+data.columns
+# Index(['A', 'B', 'C'], dtype='object')
+# A: discrete
+# B: continous
+# C: continous
+
+cpd_A = TabularCPD()
+cpd_A.from_values(
+    values=[[0.2], [0.8]],
+    state_names={
+        "A": ["False", "True"],
+    },
+    is_fitted=True,
+)
+
+cpd_B = LinearGaussianCPD()
+cpd_B.from_values(
+    values=np.array([0.1, 0.2]),
+    state_names=["std", "B"],
+    is_fitted=True,
+)
+
+# CLG(Conditional Linear Gaussian)
+from functools import partial
+
+def custom_fn_for_C(X, values, dist, noise):
+    if X["A"] == False:
+        param_values = values[0]
+    elif X["A"] == True:
+        param_values = values[1]
+
+    cpd = LinearGaussianCPD()
+    cpd.from_values(
+        values=param_values,
+        state_names=["std", "B"],
+        is_fitted=True,
+    )
+    mu = cpd.predict(X["B"])
+    return dist(mu) + noise
+
+cpd_C = FunctionalCPD()
+cpd_C.from_values(    
+    values = np.array([
+        # raw_std, beta0, beta_X
+        [0.0,     1.0,   2.0],   # A = False
+        [0.5,     3.0,  -1.0],   # A = True
+    ]),
+    state_names={
+        "A": ["False", "True"],
+        "B": None,
+        "C": None,
+    },
+    is_fitted=True,
+    fn = partial(
+        custom_fn_for_C,
+        dist=skpro.distribution.Normal,
+        noise=skpro.distribution.Normal(0, 1),
+    )
+)
+
+bn = BayesianNetwork([("A", "C"), ("B", "C")])
+bn.add_cpd("A", cpd_A)
+bn.add_cpd("B", cpd_B)
+bn.add_cpd("C", cpd_C)
+
+infer = Inference()
+infer.query()
+```
+
 ### Requirement and Contract
 - `skpro`'s Regression model can not be root node's distribution.
     - `skpro` is only support supervised learning. 
@@ -280,3 +367,4 @@ infer.query()
 - Merge several BayesianNetwork(`FunctionalBN`, `DiscreteBN`, ...) and Implement single `BayesianNetwork`
 - Implement SCM(Structure Causal Model) or GCM(Graphical Causal Model) and refactor BN(Bayesian Network) to can not calculate intervene.
 - Implement `QueryResult` dataclass
+- Implement `_StateNamesMixin` and store the `state_names` information of the data in `self._state_names`. [Ref V2's Chapter 1-2](/2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning/[002]2_Extending%20FunctionalCPD%20for%20Flexible%20Parameter%20Learning.md)
