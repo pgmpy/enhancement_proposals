@@ -269,6 +269,12 @@ infer.query()
 
 ```
 
+### Requirement and Contract
+- `skpro`'s Regression model can not be root node's distribution.
+    - `skpro` is only support supervised learning. 
+    - Supervised learning's data format is labeling data(X -> y).
+    - So, Can not express `P(A)`
+
 ### Potentional Next Steps
 - Implement `LikelihoodWeighting` for Inference with Hybrid data.
 - Merge several BayesianNetwork(`FunctionalBN`, `DiscreteBN`, ...) and Implement single `BayesianNetwork`
