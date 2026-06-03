@@ -168,6 +168,9 @@ est.fit(model, data, est_config)
 | `_remove_parameter()` | `node` | - |
 | `_remove_parameters()` | `list[node]` | - |
 
+- `Attributes`:
+    - `_parameter: dict(frozenset: FactorObject)`
+
 #### `_BaseParameter(skbase.BaseEstimator)`
 | Method | Input | Return |
 | - | - | - |
@@ -180,6 +183,10 @@ est.fit(model, data, est_config)
 | `from_values()` | `is_fitted: bool` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
 
+- `Attributes`:
+    - `_tags: dict`
+    - `_is_fitted: bool`
+
 #### `TabularCPD(_BaseParameter, ClassifierMixin)`
 | Method | Input | Return |
 | - | - | - |
@@ -191,6 +198,10 @@ est.fit(model, data, est_config)
 | `sample()` | `X: pd.DataFrame`,<br>`n_samples: int`| `y: list[np.ndarray]` |
 | `from_values()` | `cards: list[int]`,<br>`values: np.ndarray`,<br>`state_names: dict` | - |
 | `get_tag()` | `name: str`,<br>`default: Any` | tag's info |
+
+- `Attributes`:
+    - `_tags: dict`
+    - `_is_fitted: bool`
 
 #### `LinearGaussianCPD(_BaseParameter, RegressorMixin)`
 | Method | Input | Return |
@@ -221,6 +232,10 @@ est.fit(model, data, est_config)
 | - | - | - |
 | `__init__()` | `config` | - |
 | `fit()` | `model`,<br>`X: pd.DataFrame`,<br>`y: pd.DataFrame`,<br>`config: dict` | - |
+
+- `Attributes`:
+    - `_tags: dict`
+    - `_is_fitted: bool`
 
 ### User journeys with the solution
 
