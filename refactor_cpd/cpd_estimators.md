@@ -58,7 +58,9 @@ class.
    trailing-underscore attributes (`values_`, `beta_`, `std_`, `classes_`). A
    `from_values(...)` constructor covers direct parameter specification where that
    is natural (tabular CPTs, linear-Gaussian coefficients). The CPD no longer
-   stores `variable`, `evidence`, or `parents`.
+   stores its node identity (`variable`); parent labels, when known, are retained
+   only as sklearn-style input feature names for column alignment, never as graph
+   identity (see *Lifecycle and construction*).
 
 2. **Built-ins re-based on standard estimator classes.** Rather than inventing a
    pgmpy base hierarchy, the built-in CPDs inherit the relevant upstream base
@@ -119,6 +121,19 @@ convention of its base class, and `from_values` sets the correct one
 (`TabularCPD.from_values` → `is_fitted_ = True`; `LinearGaussianCPD.from_values`
 → `_is_fitted = True`).
 
+A second wrinkle is parent order. The positional arguments
+(`values`/`evidence_card`, or `beta`) are laid out in a specific parent order, so
+a CPD built by `from_values` must know that order to be interpretable. `fit(X, y)`
+captures it automatically from `X.columns` (sklearn's `feature_names_in_`);
+`from_values` has no `X`, so it takes an optional `parent_order=` list of parent
+labels that serves the same purpose — local feature-labeling for column alignment,
+not graph identity. With `parent_order=None` the columns stay anonymous and
+positional, and binding them to the graph's parents is deferred to registration
+(`dag.parameters.add(..., parent_order=...)`); if that is omitted too, parents are
+bound in sorted-name order by convention. When the CPD already carries
+`parent_order`, registration aligns by name — and may reorder `values_`/`beta_` to
+match the graph — which is safer than relying on position.
+
 ```python
 class TabularCPD(ClassifierMixin, BaseEstimator):
     """Discrete categorical CPT. Identity-free."""
@@ -135,13 +150,14 @@ class TabularCPD(ClassifierMixin, BaseEstimator):
         ...
 
     # Fitted attributes (sklearn convention)
-    values_: np.ndarray         # (variable_card, prod(evidence_card))
-    classes_: np.ndarray        # child state labels
+    values_: np.ndarray             # (variable_card, prod(evidence_card))
+    classes_: np.ndarray            # child state labels
+    feature_names_in_: np.ndarray   # parent labels in column order (if known)
     is_fitted_: bool
 
     @classmethod
     def from_values(cls, variable_card, values, evidence_card=None,
-                    state_names=None) -> "TabularCPD": ...
+                    state_names=None, parent_order=None) -> "TabularCPD": ...
 
     def fit(self, X, y, sample_weight=None) -> "TabularCPD": ...
     def predict_proba(self, X) -> pd.DataFrame: ...   # (len(X), variable_card)
@@ -162,11 +178,12 @@ class LinearGaussianCPD(BaseProbaRegressor):
 
     def __init__(self): ...
 
-    beta_: np.ndarray           # length n_parents + 1; beta_[0] = intercept
+    beta_: np.ndarray               # length n_parents + 1; beta_[0] = intercept
     std_: float
+    feature_names_in_: np.ndarray   # parent labels in beta_[1:] order (if known)
 
     @classmethod
-    def from_values(cls, beta, std) -> "LinearGaussianCPD": ...
+    def from_values(cls, beta, std, parent_order=None) -> "LinearGaussianCPD": ...
 
     def fit(self, X, y, sample_weight=None) -> "LinearGaussianCPD": ...
     def predict_proba(self, X) -> "skpro.distributions.Normal": ...
@@ -256,6 +273,12 @@ class CPDAdapter:
 3. else treat `predict_proba(X)` as a class-probability matrix (sklearn
    classifier convention) and index into it.
 
+This heterogeneity is deliberate: each built-in keeps its ecosystem-native
+`predict_proba` shape — a probability matrix for the classifier, a distribution for
+regressors — rather than being coerced onto one return type. Uniformity comes from
+the protocols and the adapter, not a shared return type, so a classifier and a
+probabilistic regressor sit side by side without a common ancestor.
+
 Built-in CPDs already implement the full surface, so they pass through
 **unwrapped**; only third-party predictive estimators are adapted, and the
 wrapping is automatic at registration time (see boundary notes).
@@ -338,7 +361,7 @@ cpd.sample(X)          # draw child states for parent rows X
 cpd.predict_proba(X)   # class probabilities over classes_
 ```
 
-The CPD is a standalone, fitted estimator. It carries no `variable` or `evidence`;
+The CPD is a standalone, fitted estimator. It carries no node identity, and
 nothing ties it to a particular graph.
 
 #### Journey 2: a built-in linear-Gaussian CPD
@@ -350,8 +373,10 @@ cpd = LinearGaussianCPD().fit(X, y)   # X: parent columns, y: continuous child
 dist = cpd.predict_proba(X)           # an skpro Normal distribution
 cpd.sample(X)
 
-# or specify parameters directly
-cpd = LinearGaussianCPD.from_values(beta=[0.2, -2.0, 3.0], std=1.0)
+# or specify parameters directly; parent_order labels the beta_[1:] positions
+cpd = LinearGaussianCPD.from_values(
+    beta=[0.2, -2.0, 3.0], std=1.0, parent_order=["X1", "X2"]
+)
 ```
 
 #### Journey 3: a scikit-learn classifier as a CPD
@@ -367,9 +392,8 @@ cpd.sample(X)          # derived from predict_proba
 cpd.log_prob(y, X)     # derived from predict_proba
 ```
 
-`LogisticRegression` is accepted by duck typing: it satisfies `FittableCPD` and
-`PredictiveCPD`. `CPDAdapter` supplies `sample`, `log_prob`, and tag access from
-its `predict_proba` matrix — no subclassing of pgmpy required.
+`LogisticRegression` satisfies `FittableCPD` + `PredictiveCPD`, so it is accepted
+by duck typing and wrapped by `CPDAdapter` — no pgmpy subclassing required.
 
 #### Journey 4: an skpro probabilistic regressor as a CPD
 
@@ -385,9 +409,8 @@ cpd.sample(X)                 # dist.sample()
 cpd.log_prob(y, X)            # dist.log_pdf(y)
 ```
 
-Here `predict_proba` returns a distribution object, so the adapter routes
-sampling and scoring through the distribution rather than a probability matrix —
-the same contract, a different backend.
+Here `predict_proba` returns a distribution, so the adapter samples and scores
+through it rather than a probability matrix — same contract, different backend.
 
 #### Journey 5: a scikit-learn `Pipeline` as a CPD (handling categorical parents)
 
@@ -404,11 +427,23 @@ cpd = CPDAdapter(Pipeline([
 cpd.fit(X, y)   # the Pipeline encodes categorical parents internally
 ```
 
-Because pgmpy passes parent columns through unmodified, encoding categorical
-parents is done inside the estimator. A `Pipeline` (or `ColumnTransformer`) is the
-supported pattern until graph-owned default encoders are added.
+pgmpy passes parent columns through unmodified, so categorical parents are encoded
+inside the estimator (here a `Pipeline`); see *Boundary notes*.
 
-#### Journey 6 (boundary): dropping a raw estimator onto a graph node
+#### Journey 6: a Gaussian Process regressor as a continuous CPD
+
+skpro's `GaussianProcess` exposes `predict_proba` as a distribution, so it drops in
+through the same path as Journey 4 — a nonlinear CPD with calibrated,
+input-dependent uncertainty:
+
+```python
+from skpro.regression.gp import GaussianProcess
+from pgmpy.parameterization import CPDAdapter
+
+cpd = CPDAdapter(GaussianProcess()).fit(X, y)   # predict_proba → distribution; adapter adds sample/log_prob
+```
+
+#### Journey 7 (boundary): dropping a raw estimator onto a graph node
 
 ```python
 from skpro.regression.ensemble import NGBoostRegressor
