@@ -6,6 +6,18 @@ Contributors: @anusa-saha (Anusa Saha, NIT Agartala)
 
 **Extension of Score Based Causal Discovery Algorithms**
 
+Score-based causal discovery algorithms aim to recover causal structure by optimizing a scoring criterion over the space of graphical models. While pgmpy currently provides support for Greedy Equivalence Search (GES), recent research has produced several scalable and theoretically stronger alternatives that address limitations in runtime, model assumptions, and search strategy.
+
+This proposal extends pgmpy's score-based causal discovery framework through the implementation of a progression of modern algorithms: FGES, Nonparametric GES, SP, GRaSP, and BOSS.
+
+These algorithms represent three major directions in causal discovery research:
+
+1. Improving the scalability of equivalence-class search (FGES).
+2. Extending score-based methods beyond linear Gaussian assumptions (Nonparametric GES).
+3. Reformulating causal discovery as permutation optimization (SP, GRaSP, BOSS).
+
+Together these implementations provide a comprehensive framework for modern score-based causal discovery while remaining consistent with pgmpy's existing API and architecture.
+
 The current repository mainly supports the GES (Greedy Equivalence Search) algorithm for causal discovery. Although GES is an important score-based method, it becomes computationally expensive for large and dense datasets because it directly searches in DAG/CPDAG space. Modern causal discovery research has introduced more scalable and efficient approaches to overcome these limitations.
 
 This proposal aims to extend the repository by implementing a sequence of advanced algorithms:
@@ -97,6 +109,28 @@ The significance of implementing BOSS lies in its ability to maintain the strong
 - https://github.com/cmu-phil/tetrad/blob/development/tetrad-lib/src/main/java/edu/cmu/tetrad/search/Boss.java
 - https://github.com/py-why/causal-learn/blob/main/causallearn/search/PermutationBased/BOSS.py
 
+### Repository Architecture
+
+The proposed algorithms will be implemented within pgmpy/causal_discovery and integrated with the existing
+causal discovery framework.
+```
+pgmpy/
+    causal_discovery/
+        GES.py
+        SP.py
+        GRaSP.py
+        BOSS.py
+        NonParametricGES.py
+
+    tests/
+        test_causal_discovery/
+            test_GES.py
+            test_SP.py
+            test_GRaSP.py
+            test_BOSS.py
+            test_NonParametricGES.py
+```
+
 ### Algorthmic Design of proposed algorithms
 
 **Algorithm 1: FGES Optimizations for GES:**
@@ -110,9 +144,18 @@ The implementation focuses on accelerating candidate evaluation through parallel
 - Backward Equivalence Search
 - Turning Phase
 
-For every graph state, candidate operations are generated, candidate score improvements are evaluated and the highest-scoring legal operation is applied
-
-The FGES variant modifies only how candidates are evaluated and filtered.
+*Algorithm Steps:*
+1. Initialize the search with an empty CPDAG.
+2. Execute the Forward Equivalence Search (FES) phase by generating all legal edge insertion operations.
+3. Evaluate the score improvement associated with each legal insertion.
+4. Apply the insertion yielding the largest positive score improvement.
+5. Update the CPDAG and repeat until no insertion improves the score.
+6. Execute the Backward Equivalence Search (BES) phase by generating all legal edge deletion operations.
+7. Evaluate candidate deletions and apply the deletion with the largest positive score improvement.
+8. Continue until no deletion improves the score.
+9. Execute the Turning Phase by considering legal edge orientation modifications.
+10. Apply the highest-scoring turning operation and repeat until convergence.
+11. Return the final CPDAG representing the learned Markov equivalence class.
 
 **Solution and Implementation Details**:
 
