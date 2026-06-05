@@ -1,4 +1,4 @@
-## [Title]
+## Score Based Causal Discovery Algorithms
 
 Contributors: @anusa-saha (Anusa Saha, NIT Agartala)
 
