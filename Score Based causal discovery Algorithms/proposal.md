@@ -49,7 +49,6 @@ pgmpy/
         SP.py
         GRaSP.py
         BOSS.py
-        NonParametricGES.py
 
     tests/
         test_causal_discovery/
@@ -57,7 +56,6 @@ pgmpy/
             test_SP.py
             test_GRaSP.py
             test_BOSS.py
-            test_NonParametricGES.py
 ```
 
 ### Algorthmic Design of proposed algorithms
