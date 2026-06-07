@@ -193,7 +193,7 @@ GES and FGES produce identical results when n_jobs=1 for both:
 **Metrics:** Runtime, Candidate evaluations, SHD
 
 **Unit Tests**: `pgmpy/tests/test_causal_discovery/test_GES.py`
-We will introduce a few class:
+We will introduce a new class:
 
 ```python
 class TestFGES:
