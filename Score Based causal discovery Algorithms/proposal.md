@@ -194,16 +194,30 @@ GES and FGES produce identical results when n_jobs=1 for both:
 
 **Unit Tests**: `pgmpy/tests/test_causal_discovery/test_GES.py`
 
-Comprehensive unit tests will be developed for all FGES-specific functionality and integrated into the existing GES test suite. The tests will verify:
-- Correct execution of the variant="fges" mode
-- Correct behavior of parallel candidate evaluation across different values of n_jobs
-- Deterministic outputs between sequential and parallel execution
-- Correct enforcement of the max_neighbors degree constraint
-- Preservation of DAG acyclicity and CPDAG validity
-- Consistency between GES and FGES outputs on benchmark datasets
-- Compatibility with the existing scikit-learn estimator interface
+The proposed tests are:
+- `test_fges_estimate_rand`: Verifies that FGES successfully learns a graph from the synthetic random dataset and produces a valid causal graph.
+- `test_fges_estimate_titanic`: Verifies that FGES runs successfully on a real-world dataset and returns a non-empty graph structure.
+- `test_fges_matches_ges_rand`: Ensures that FGES produces the same CPDAG as the standard GES implementation on the synthetic dataset, validating functional equivalence.
+- `test_fges_matches_ges_titanic`: Ensures that FGES and GES produce identical results on a real-world dataset.
+- `test_fges_parallel_consistency_rand`: Verifies that running FGES with `n_jobs=1` and `n_jobs=2` produces identical graph structures on the synthetic dataset.
+-  `test_fges_parallel_consistency_titanic`: Verifies that parallel execution does not alter the learned graph on the Titanic dataset.
+- `test_fges_n_jobs_minus_one`: Confirms that the special value `n_jobs=-1` executes successfully and uses all available CPU cores.
+- `test_fges_max_neighbors`: Exercises the `max_neighbors` parameter and verifies that the constrained search completes successfully.
 
-The new tests will be added alongside the current GES test suite to ensure that all FGES optimizations preserve the correctness guarantees of the original implementation while maintaining full regression coverage for future development.
+These tests collectively validate:
+1. Basic FGES functionality.
+2. Equivalence between GES and FGES.
+3. Deterministic behavior under parallel execution.
+4. Coverage of newly introduced public parameters (`n_jobs` and `max_neighbors`).
+
+If a smaller test suite is preferred, the most important tests are:
+
+- `test_fges_matches_ges_rand`
+- `test_fges_matches_ges_titanic`
+- `test_fges_parallel_consistency_rand`
+- `test_fges_max_neighbors`
+
+as these directly verify the core guarantees introduced by the FGES implementation.
 
 **Algorithm 2 : Non Paramteric GES**
 
