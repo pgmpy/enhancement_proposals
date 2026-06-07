@@ -215,6 +215,7 @@ Within pgmpy, this extension naturally builds upon the FGES infrastructure alrea
  
 
 **Link to the paper**: https://arxiv.org/abs/2406.17228
+**Other Implementation**: https://github.com/wenjiewang3/Optimal-Kernel-Choice-for-Score-Function-based-Causal-Discovery
 
 *API design to be decided*
 
