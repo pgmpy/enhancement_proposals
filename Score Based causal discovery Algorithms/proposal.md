@@ -193,6 +193,11 @@ GES and FGES produce identical results when n_jobs=1 for both:
 **Metrics:** Runtime, Candidate evaluations, SHD
 
 **Unit Tests**: `pgmpy/tests/test_causal_discovery/test_GES.py`
+We will introduce a few class:
+
+```python
+class TestFGES:
+```
 
 The proposed tests are:
 - `test_fges_estimate_rand`: Verifies that FGES successfully learns a graph from the synthetic random dataset and produces a valid causal graph.
