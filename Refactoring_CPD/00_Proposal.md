@@ -5,6 +5,51 @@
 
 ### Introduction
 
+#### Introduction 1
+A pgmpy Bayesian network is parameterized by one of three CPD families, and
+they do not share a contract:
+
+- `TabularCPD(DiscreteFactor)` — a discrete CPT tightly coupled to factor
+  semantics through inheritance.
+- `LinearGaussianCPD(BaseFactor)` — a separate continuous CPD with its own
+  surface.
+- `FunctionalCPD` — a Pyro-based class with a different operational surface
+  again.
+
+Two problems follow from this.
+
+First, each class bakes in **graph identity**. A CPD is constructed with the
+node it parameterizes and that node's parents
+(`TabularCPD(variable="grade", evidence=["diff", "intel"], ...)`,
+`LinearGaussianCPD(variable="Y", beta=..., evidence=["X1", "X2"])`). The local
+conditional model and the place it sits in a particular graph are fused, so a
+fitted CPD cannot be reused, inspected, or tested as a standalone "model for one
+variable."
+
+Second, because the three families have no common, minimal surface, a "local
+conditional model" is not an extensible abstraction. A user who wants to
+parameterize a node with an ordinary scikit-learn classifier or an skpro
+probabilistic regressor has no path that does not involve subclassing pgmpy
+internals — even though those estimators already expose exactly the operations a
+CPD needs (`fit`, `predict_proba`).
+
+This proposal refactors CPDs into **identity-free, sklearn/skpro-style
+estimators** and defines a small **duck-typed contract** so that any estimator
+carrying the required methods can act as a conditional distribution for a node,
+wrapped automatically by an adapter when needed.
+
+**Scope.** This document covers the local CPD boundary only. Two neighboring
+concerns are intentionally out of scope and are referenced only where the
+boundary matters:
+
+- *Who owns node identity, parent order, variable schema, and parent encoding?*
+  That is the parameterized-`DAG` layer (a separate proposal).
+- *Structural and counterfactual semantics* (`X = f(Pa(X), U)`, abduction,
+  noise models). That is a further, optional layer on top of the contract
+  defined here.
+
+#### Introduction 2
+
 > Real-world Bayesian networks commonly have high-cardinality nodes. <br>
 > Issue #1776 shows another user hit 64 TiB allocation on an 82-node network. <br>
 > This is silently killing pgmpy adoption in production systems. [[#3203](https://github.com/pgmpy/pgmpy/issues/3203)]
