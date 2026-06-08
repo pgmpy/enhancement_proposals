@@ -25,6 +25,7 @@ class ParameterTags:
     produces_factor: bool = False
     is_linear_gaussian: bool = False
     supports_fit_joint: bool = False
+    distribution: bool = False # Is this CPD can be root node's distribution? (P(X))
     python_dependencies = []
 
 ```
