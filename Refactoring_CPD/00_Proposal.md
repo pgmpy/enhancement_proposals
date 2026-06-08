@@ -23,6 +23,7 @@
 3. `predict_proba()` is return distribution object of `skpro.distribution`'s format.(exclude `FunctionalCPD`)
 4. Using skpro style(`dist.log_pdf(y)`, `dist.log_pmf(y)`).
 5. Using sklearn style's tag system(`__pgmpy_tags__()`).
+6. But, distribution object is following skpro style's tag system(`_tags = {}`)
 
 #### [01. Implement `BaseParameter`, `Tags`, `ParameterTags`](/Refactoring_CPD/01_Implement_BaseParameter_ParameterTags.md)
 
@@ -75,7 +76,7 @@ cpd = LinearGaussianCPD.from_values(
 from sklearn.linear_model import LogisticRegression
 from pgmpy.parameterization.adapter import SklearnAdapter
 
-cpd = CPDAdapter(LogisticRegression())
+cpd = SklearnAdapter(LogisticRegression())
 cpd.fit(X, y)
 
 samples = cpd.sample(X)          # derived from predict_proba
