@@ -65,4 +65,4 @@ class SklearnAdapter(BaseParameter):
 - Implement `predict_log_proba()`:
     - scikit-learn’s `predict_log_proba()` is a classifier-specific method, and its role is different from that of `log_prob()`, `log_pdf()`, or `log_pmf()`.
 - inheriting from `BaseProbaRegressor`: For the adapter class, I think using the structure of `_DelegatedProbaRegressor` is better.
-- By using skpro’s `DeltaPointRegressor`, sklearn regression models can be made to return a delta distribution via `predict_proba()`.: [skpro/regression/delta.py](https://github.com/sktime/skpro/blob/main/skpro/regression/delta.py)
+- By using skpro’s `DeltaPointRegressor`: sklearn regression models can be made to return a delta distribution via `predict_proba()`. [skpro/regression/delta.py](https://github.com/sktime/skpro/blob/main/skpro/regression/delta.py)

@@ -6,11 +6,11 @@
 - Rather than aligning directly with either library’s tag set, it may be better to follow the tagging-system pattern while defining a separate set of tags specifically for pgmpy.
 - This follow `sklearn`'s tagging system.
 - rename exist path `pgmpy/base/` -> `pgmpy/graph/`
-- create path `pgmpy/base/`. This path has a resopnsibity of `BaseEstimator` and `Mixin` class.
+- create path `pgmpy/base/`. This path has a responsibility of `BaseEstimator` and `Mixin` class.
 
 > In scikit-learn, tags are used to dynamically run tests based on estimator properties, such as input data validation and automated common unit tests. <br>
 > In skpro, tags provide users with a way to search for models that can perform a specific workflow, for example through `all_objects()`. <br>
-> In pgmpy, tags appear to be used to determine whether a model is capable of running a particular algorithm. <br>
+> In pgmpy, a model’s tags are used to determine whether a specific algorithm can be run.
 
 ```py
 # pgmpy/utils/_tags.py

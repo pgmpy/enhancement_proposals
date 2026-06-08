@@ -94,6 +94,5 @@ class FunctionalCPD(BaseParameter):
     - only the tag system from `ClassifierMixin` can be used, and I think it would be more appropriate to create a pgmpy-specific tag system rather than relying on scikit-learn’s tag system.
 
 - `log_prob` and `predict_log_proba` and (`log_pdf`, `log_pmf`)
-    - We are following sklearn API style. So, I believe following `predict_log_proba`(sklearn style) is better than `log_prob`(pyro style).
-        - if we follow skpro style. Then, We have to separate `log_pdf`, `log_pmf`.
-- inheriting from `ClassifierMixin`
+    - scikit-learn’s `predict_log_proba()` is a classifier-specific method, and its role is different from that of `log_prob()`, `log_pdf()`, or `log_pmf()`.
+    - Also, since it uses `skpro.distribution`, it seems easier to use `log_pdf` and `log_pmf`.

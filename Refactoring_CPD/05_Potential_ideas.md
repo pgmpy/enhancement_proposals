@@ -3,12 +3,14 @@
 ### 05-01. Unsupervised learning models in `sklearn` can serve as the distribution at the root node.
 
 - A representative example is `GaussianMixture`, which is an unsupervised learning model.
-- Therefore, it can represent a probability distribution rather than a conditional probability distribution.
+- Therefore, it can represent a probability distribution(`P(X)`) rather than a conditional probability distribution.(`P(Y|X)`)
 - However, to clearly define the scope of the project, I think it would be better to focus on classifiers and regression models.
 
 - [sklearn/mixture/_gaussian_mixture.py](https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/mixture/_gaussian_mixture.py)
 
 ## 05-02. Implement `check_parameterization()`
+
+- It is a utility function that checks whether a user-custom parameter class can work.
 
 ```py
 # pgmpy/utils/parameter_checks.py
