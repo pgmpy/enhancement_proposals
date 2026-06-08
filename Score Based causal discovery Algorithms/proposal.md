@@ -233,7 +233,7 @@ The core search procedure remains identical to standard GES. Starting from an em
 Within pgmpy, this extension naturally builds upon the FGES infrastructure already developed in the first stage of the project. The existing search procedure, legality conditions, CPDAG operations, and optimization strategies can be reused, while the scoring component is generalized to support nonparametric model evaluation. This separation between search and scoring provides a flexible framework that can later accommodate kernel-based scores, Bayesian nonparametric likelihoods, and other expressive model classes without requiring modifications to the underlying graph search algorithm.
  
 
-**Link to the paper**: https://arxiv.org/abs/2406.17228
+**Link to the paper**: https://dl.acm.org/doi/10.1145/3219819.3220104
 **Other Implementation**: https://github.com/wenjiewang3/Optimal-Kernel-Choice-for-Score-Function-based-Causal-Discovery
 
 *API design to be decided*
