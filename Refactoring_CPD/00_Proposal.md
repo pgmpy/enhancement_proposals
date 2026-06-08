@@ -21,7 +21,8 @@
 1. `fit()` return `self`
 2. `predict()` is not implemented.
 3. `predict_proba()` is return distribution object of `skpro.distribution`'s format.(exclude `FunctionalCPD`)
-4. Using tag system.
+4. Using skpro style(`dist.log_pdf(y)`, `dist.log_pmf(y)`).
+5. Using sklearn style's tag system(`__pgmpy_tags__()`).
 
 #### [01. Implement `BaseParameter`, `Tags`, `ParameterTags`](/Refactoring_CPD/01_Implement_BaseParameter_ParameterTags.md)
 
@@ -116,7 +117,7 @@ res = dist.log_pdf(y) # res == 2D np.ndarray
 #### Journey 6: Classifier
 ```py
 from sklearn.ensemble import RandomForestClassifier
-from pgmpy.parameterization.SklearnAdapter
+from pgmpy.parameterization.adapter import SklearnAdapter
 
 cpd1 = SklearnAdapter(RandomForestClassifier())
 

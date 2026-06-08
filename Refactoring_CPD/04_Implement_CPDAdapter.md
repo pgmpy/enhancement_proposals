@@ -24,6 +24,11 @@ class SkproAdapter(_DelegatedProbaRegressor, BaseParameter):
         self.estimator_ = clone(self.estimator)
         self.estimator_.fit(X=X, y=y, C=C)
         return self
+
+    def sample(self, X, n_samples=1):
+        dist = self.predict_proba(X)
+        samples = dist.sample()
+        return pd.Series(samples, ...)
     
 ```
 
@@ -54,6 +59,11 @@ class SklearnAdapter(BaseParameter):
         elif is_classifier(self.estimator_):
             ...
             return CategoricalDistribution(...)
+
+    def sample(self, X, n_samples=1):
+        dist = self.predict_proba(X)
+        samples = dist.sample()
+        return pd.Series(samples, ...)
 
 ```
 

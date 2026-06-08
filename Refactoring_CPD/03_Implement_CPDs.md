@@ -38,6 +38,11 @@ class TabularCPD(BaseParameter):
     def predict_proba(self, X):
         ...
         return CategoricalDistribution() # (len(X), variable_card)
+
+    def sample(self, X, n_samples=1):
+        dist = self.predict_proba(X)
+        samples = dist.sample()
+        return pd.Series(samples, ...)
 ```
 
 ```py
@@ -64,10 +69,9 @@ class LinearGaussianCPD(BaseParameter):
         return skpro.distributions.Normal(mu, sigma)
 
     def sample(self, X, n_samples=1):
-        return pd.Series()
-
-    def predict_log_proba(self, X):
-        return pd.Series()
+        dist = self.predict_proba(X)
+        samples = dist.sample()
+        return pd.Series(samples, ...)
 
 ```
 
