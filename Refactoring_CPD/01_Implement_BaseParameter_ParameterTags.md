@@ -3,8 +3,7 @@
 ### Proposal Solutions
 
 - scikit-learn and skpro each define tag lists tailored to their own libraries.
-- Rather than aligning directly with either library’s tag set, it may be better to follow the tagging-system pattern while defining a separate set of tags specifically for pgmpy.
-- This follow `sklearn`'s tagging system.
+- This follow `skpro`'s tagging system.
 - rename exist path `pgmpy/base/` -> `pgmpy/graph/`
 - create path `pgmpy/base/`. This path has a responsibility of `BaseEstimator` and `Mixin` class.
 

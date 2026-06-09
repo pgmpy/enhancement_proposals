@@ -3,7 +3,7 @@
 ### Proposal Solutions
 
 - `SkproAdapter` inherits from `_DelegatedProbaRegressor`.
-    - This allows `SkproAdapter` to have `pgmpy_tags`, while preserving the skpro tags in `self.estimator_`.
+    - This allows `SkproAdapter` to have `BaseParameter`'s tag, while preserving the skpro tags in `self.estimator_`.
 - `SklearnAdapter` will be follows the same structure.
 - The API follows the sklearn API style.(`fit`, `predict_proba`)
 - In the case of `predict_proba`, it returns a skpro's distribution object.
