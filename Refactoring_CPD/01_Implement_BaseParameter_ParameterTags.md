@@ -1,4 +1,4 @@
-## 1. Implement `BaseParameter`, `Tags`, `ParameterTags`
+## 1. Implement `BaseParameter`
 
 ### Proposal Solutions
 
@@ -11,6 +11,33 @@
 > In scikit-learn, tags are used to dynamically run tests based on estimator properties, such as input data validation and automated common unit tests. <br>
 > In skpro, tags provide users with a way to search for models that can perform a specific workflow, for example through `all_objects()`, `all_tags()`. <br>
 > In pgmpy, a model’s tags are used to determine whether a specific algorithm can be run.
+
+```py
+from skbase.base import BaseEstimator as _BaseEstimator
+
+class _ParameterTags:
+    _config = {}
+
+    _tags = {
+        "variable_type" :"discrete"
+        "produces_factor" : False
+        "is_linear_gaussian": False
+        "supports_fit_joint": False
+        "python_dependencies" = []
+    }
+
+class BaseParameter(_ParameterTags, _BaseEstimator):
+    ...
+```
+
+- [skpro/base/_base.py](https://github.com/sktime/skpro/blob/main/skpro/base/_base.py)
+
+
+### Alternative Solutions
+
+- rename exist path `pgmpy/base/` -> `pgmpy/graph/`
+- create path `pgmpy/base/`. This path has a resopnsibity of `BaseEstimator` and Tagging system.
+
 
 ```py
 # pgmpy/utils/_tags.py
@@ -45,28 +72,3 @@ class BaseParameter(_BaseEstimator):
 
 - [sklearn/base.py](https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/base.py)
 - [sklearn/utils/_tags.py](https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/utils/_tags.py)
-
-### Alternative Solutions
-
-- rename exist path `pgmpy/base/` -> `pgmpy/graph/`
-- create path `pgmpy/base/`. This path has a resopnsibity of `BaseEstimator` and Tagging system.
-
-```py
-from skbase.base import BaseEstimator as _BaseEstimator
-
-class _ParameterTags:
-    _config = {}
-
-    _tags = {
-        "variable_type" :"discrete"
-        "produces_factor" : False
-        "is_linear_gaussian": False
-        "supports_fit_joint": False
-        "python_dependencies" = []
-    }
-
-class BaseParameter(_ParameterTags, _BaseEstimator):
-    ...
-```
-
-- [skpro/base/_base.py](https://github.com/sktime/skpro/blob/main/skpro/base/_base.py)
