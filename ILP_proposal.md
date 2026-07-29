@@ -125,6 +125,10 @@ $$\begin{aligned}
 ### Class API Design
 
 ```python
+import pandas as pd
+from pgmpy.causal_discovery import ExpertKnowledge
+from pgmpy.causal_discovery._base import BaseCausalDiscovery
+
 class ILPSearch(BaseCausalDiscovery):
     """
     Exact score-based causal discovery for continuous data using Integer Programming.
@@ -155,7 +159,9 @@ class ILPSearch(BaseCausalDiscovery):
         l_penalty=0.1,
         expert_knowledge=None,
         opt_gap=0.001,
+        **kwargs
     ):
+        super().__init__(**kwargs)
         self.penalty = penalty
         self.l_penalty = l_penalty
         self.expert_knowledge = expert_knowledge
@@ -190,47 +196,29 @@ Since `scipy` is already a core dependency of `pgmpy`, `ILPSearch` relies direct
 
 ## Usage
 
-### Case 1: Learning an Optimal Causal Graph from Continuous Data
-
 ```python
 import pandas as pd
-from pgmpy.causal_discovery import ILPSearch
+from pgmpy.causal_discovery import ILPSearch, ExpertKnowledge
 
-# Load continuous dataset
-df = pd.read_csv("continuous_data.csv")
+# 1. Initialize ILP causal discovery algorithm with L0 sparsity penalty
+ilp = ILPSearch(penalty="l0", l_penalty=0.1)
 
-# Initialize ILP causal discovery algorithm with L0 sparsity penalty
-model = ILPSearch(penalty="l0", l_penalty=0.1)
+# Fit globally optimal DAG from continuous data
+ilp.fit(data)
 
-# Fit globally optimal DAG
-model.fit(df)
+# Access fitted DAG and learned adjacency matrix directly
+ilp.causal_graph_
+ilp.adjacency_matrix_
 
-# Retrieve learned DAG
-dag = model.causal_graph_
-print("Learned DAG Edges:", dag.edges())
-```
-
-### Case 2: Using `ExpertKnowledge` (Superstructure & Structural Constraints)
-
-```python
-import pandas as pd
-from pgmpy.causal_discovery import ExpertKnowledge, ILPSearch
-
-# Define expert knowledge (superstructure search space & edge constraints)
+# 2. Fit ILP search with prior Expert Knowledge (superstructure & edge constraints)
 ek = ExpertKnowledge(
     search_space=[("A", "B"), ("B", "C"), ("A", "C")],
     required_edges=[("A", "B")],
     forbidden_edges=[("C", "A")]
 )
-
-model = ILPSearch(
-    penalty="l1",
-    l_penalty=0.05,
-    expert_knowledge=ek
-)
-
-model.fit(df)
-dag = model.causal_graph_
+ilp_ek = ILPSearch(penalty="l1", l_penalty=0.05, expert_knowledge=ek)
+ilp_ek.fit(data)
+ilp_ek.causal_graph_
 ```
 
 ---
@@ -246,3 +234,5 @@ dag = model.causal_graph_
 [4] [Branch and Cut](https://en.wikipedia.org/w/index.php?title=Branch_and_cut&oldid=1284905949)
 
 [5] [Cutting Plane Method](https://en.wikipedia.org/wiki/Cutting-plane_method)
+
+[6] [SciPy `scipy.optimize.milp` Documentation](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.milp.html)
