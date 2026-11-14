@@ -56,6 +56,7 @@ Outline of Implementation:
 
 ### User journeys with the solution
 
+#### Real-Life Use Cases
 <!--[Add examples of different use cases]-->
 1) Causal inference under partial identifiability:
 
@@ -70,3 +71,57 @@ Using a credal network for classification tasks where data is sparse and incompl
 Experts can specify credal sets for situations where data is scarce. This would help in assessing the risk of an event happening in circumstances where there is little and incomplete data.
 
 There are various other use cases, however I have only listed a few.
+
+#### User Journeys
+
+Parameter Estimation
+```python
+from pgmpy.models import DiscreteCredalNetwork
+from pgmpy.estimators import DiscreteCredalParameterEstimator
+import pandas as pd
+
+model = DiscreteCredalNetwork([("A","B"), ("A","C")])
+data = pd.DataFrame()
+
+# Batch learning
+model.fit(data, estimator=DiscreteCredalParameterEstimator)
+# or
+estimator = DiscreteCredalParameterEstimator()
+estimator.fit(model,data,weight=1.0)
+
+# Single update step
+single_observation = data.iloc[0]
+estimator.update(single_observation,weight=1.0)
+```
+
+Inference
+```python
+from pgmpy.models import DiscreteCredalNetwork
+from pgmpy.inference import CredalVariableElimination
+from pgmpy.inference.decision_criteria import EAdmissibility
+
+model = DiscreteCredalNetwork([("A","B"), ("A","C")])
+infer = CredalVariableElimination(model)
+
+posterior = infer.query(
+    variables = ["A"],
+    evidence={"B":"True", "C":"False"},
+)
+
+# Returning a single decision output as per a certain decision criterion
+
+decision_result = infer.decision_query(
+    variables = ["A"],
+    evidence={"B":"True", "C":"False"},
+    decision_criteria = EAdmissibility
+)
+
+# or the different decision criterion can be implemented into the CredalVariableElimination class
+
+decision_result = infer.decision_query(
+    variables = ["A"],
+    evidence={"B":"True", "C":"False"},
+    decision_criteria = "e-admissibility"
+)
+
+```
